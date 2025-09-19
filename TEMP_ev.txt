@@ -1,0 +1,178 @@
+@extends('layouts.riesgos')
+
+@section('title', 'MATRIZ DE EVALUACION DE RIESGOS')
+
+@section('content')
+@php
+    $departamentos = [];
+    $ordenColumnas = [];
+
+    if (count($matriz) > 0) {
+        foreach (array_keys((array)$matriz[0]) as $col) {
+            if (in_array($col, ['N°','RIESGO','DESCRIPCION'])) continue;
+
+            $parts = explode('||', $col);
+            $dep    = $parts[0] ?? 'SIN DEPTO';
+            $puesto = $parts[1] ?? 'Puesto';
+            $num    = (int)($parts[2] ?? 0);
+
+            $departamentos[$dep][] = [$puesto, $num, $col];
+            $ordenColumnas[] = $col;
+        }
+    }
+
+    $mapNivelColor = [
+        'Riesgo Muy Alto'     => '#ff0000',
+        'Riesgo Alto'         => '#be5014',
+        'Riesgo Medio'        => '#ffc000',
+        'Riesgo Bajo'         => '#ffff00',
+        'Riesgo Irrelevante'  => '#92d050',
+        '5' => '#ff0000','4' => '#be5014','3' => '#ffc000','2' => '#ffff00','1' => '#92d050',
+    ];
+@endphp
+
+<div class="flex justify-end mb-3 gap-2 print:hidden">
+  <a href="{{ route('evaluacionriesgos.export') }}"
+     class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm shadow">
+     Descargar Excel
+  </a>
+</div>
+
+{{-- Encabezado con logo + títulos alineados --}}
+<div class="flex items-center justify-center gap-4 mb-4 print:mb-2">
+    <img src="{{ asset('img/logo.PNG') }}" alt="Service and Trading Business"
+         class="h-16 w-auto object-contain print:h-14" />
+    <div class="text-center leading-tight">
+        <h1 class="text-xl font-bold">MATRIZ DE EVALUACION DE RIESGOS POR PUESTO DE TRABAJO</h1>
+        <p class="text-sm">PROCESO DE SALUD Y SEGURIDAD OCUPACIONAL / OCCUPATIONAL HEALTH AND SAFETY PROCESS</p>
+        <p class="text-sm">MATRIZ DE ANALISIS DE RIESGO / RISK ANALYSIS MATRIX</p>
+    </div>
+</div>
+
+<style>
+  /* Contenedor con scroll y contexto de apilado */
+  .tabla-wrap{
+  overflow-x:auto; overflow-y:auto; max-height:70vh;
+  position: relative;                 /* contexto de apilado */
+  border:1px solid #e5e7eb; border-radius:8px; background:#fff;
+}
+
+  .tabla-matriz{ width:max-content; table-layout:auto; border-collapse:collapse; font-size:12px; }
+  .tabla-matriz th, .tabla-matriz td{
+    border:1px solid #d1d5db; padding:6px; text-align:center; vertical-align:middle;
+    word-break:break-word; background-clip:padding-box;
+  }
+
+  /* Alturas */
+  :root{
+    --h1: 40px;  /* fila 1: Departamentos */
+    --h2: 40px;  /* fila 2: RIESGO + Puestos */
+    --h3: 36px;  /* fila 3: # Empleados */
+    --w-ries: 320px;  /* ancho col RIESGO (por si lo usas en otros sitios) */
+  }
+
+  /* header pegajoso (igual que ya tienes) */
+  thead tr.row-areas   th{ position: sticky; top:0;                           z-index:100; height:var(--h1); }
+  thead tr.row-puestos th{ position: sticky; top:var(--h1);                   z-index: 90; height:var(--h2); }
+  thead tr.row-numeros th{ position: sticky; top:calc(var(--h1) + var(--h2)); z-index: 80; height:var(--h3); }
+
+  /* Anchos de las 2 primeras columnas */
+  .col-ries { width: 320px; text-align: left; }
+  .col-desc { width: 420px; text-align: left; }
+
+  /* RIESGO (TH con rowspan=3) fijo a la izquierda y por ENCIMA de la franja azul */
+  .sticky-left-ries-th{
+    position: sticky;
+    left: 0;
+    top: 0;                       /* alinea con la fila 1 del thead */
+    z-index: 120 !important;      /* > 100 para que no lo tape el header morado */
+    background: #fff;
+    box-shadow: 2px 0 0 #e5e7eb;  /* separador opcional */
+  }
+
+  /* Celdas del cuerpo de la columna RIESGO: por debajo del header (se ocultan al subir) */
+  .sticky-left-ries-td{
+    position: sticky;
+    left: 0;
+    z-index: 20;                  /* menor que el header */
+    background: #fff;
+    box-shadow: 2px 0 0 #e5e7eb;
+  }
+
+  /* PRIMERA COLUMNA DE PUESTOS fija: se ubica justo después de RIESGO (no contamos DESCRIPCION porque no es sticky) */
+  .sticky-first-puesto-th{ position:sticky; left: var(--w-ries); z-index:70; background:#fff; }
+  .sticky-first-puesto-td{ position:sticky; left: var(--w-ries); z-index:45; background:#fff; }
+
+  @media print{
+    .tabla-wrap{ overflow:visible; max-height:none; }
+    thead th, .sticky-left-ries-th, .sticky-left-ries-td, .sticky-first-puesto-th, .sticky-first-puesto-td{ position:static !important; box-shadow:none !important; }
+  }
+</style>
+
+<div class="tabla-wrap">
+  <table class="tabla-matriz w-full text-xs">
+    <thead>
+      {{-- Fila 1: barra superior (Departamentos) --}}
+      <tr class="row-areas">
+        {{-- RIESGO abarca 3 filas --}}
+        <th rowspan="3" class="px-2 py-1 bg-gray-200 col-ries sticky-left-ries-th">RIESGO</th>
+
+        {{-- Áreas de Trabajo SOLO encima de DESCRIPCIÓN --}}
+        <th class="px-2 py-2 text-left font-bold bg-gray-100">Áreas de Trabajo</th>
+
+        {{-- Grupos por departamento sobre columnas dinámicas --}}
+        @foreach($departamentos as $dep => $puestos)
+          <th colspan="{{ count($puestos) }}" class="px-2 py-2 text-center font-bold bg-indigo-600 text-white">
+            {{ $dep }}
+          </th>
+        @endforeach
+      </tr>
+
+      {{-- Fila 2: DESCRIPCIÓN + Puestos --}}
+      <tr class="row-puestos">
+        <th class="px-2 py-1 bg-gray-200 col-desc">DESCRIPCIÓN</th>
+        @foreach($departamentos as $dep => $puestos)
+          @foreach($puestos as [$puesto, $num, $key])
+            <th class="px-2 py-1 bg-indigo-200 text-center whitespace-nowrap min-w-[140px]">
+              {{ $puesto }}
+            </th>
+          @endforeach
+        @endforeach
+      </tr>
+
+      {{-- Fila 3: Número de Empleados --}}
+      <tr class="row-numeros">
+        <th class="px-2 py-1 bg-gray-100 text-left">Número de Empleados</th>
+        @foreach($departamentos as $dep => $puestos)
+          @foreach($puestos as [$puesto, $num, $key])
+            <th class="px-2 py-1 text-center bg-gray-50">{{ $num }}</th>
+          @endforeach
+        @endforeach
+      </tr>
+    </thead>
+
+      <tbody>
+        @foreach($matriz as $fila)
+          <tr>
+            <td class="px-2 py-1 text-left col-ries sticky-left-ries-td">{{ $fila->{'RIESGO'} }}</td>
+            <td class="px-2 py-1 text-left col-desc">{{ $fila->{'DESCRIPCION'} }}</td>
+
+            @foreach($departamentos as $dep => $puestos)
+              @foreach($puestos as [$puesto, $num, $key])
+                @php
+                  $val = $fila->$key ?? null;
+                  $valKey = is_string($val) ? trim($val) : $val;
+                  $color = $mapNivelColor[$valKey] ?? $mapNivelColor[(string)$valKey] ?? '#ffffff';
+                @endphp
+                <td class="px-2 py-1 text-center" style="background-color: {{ $color }}">
+                  {{ $val ?? '—' }}
+                </td>
+              @endforeach
+            @endforeach
+          </tr>
+        @endforeach
+      </tbody>
+  </table>
+</div>
+@endsection
+

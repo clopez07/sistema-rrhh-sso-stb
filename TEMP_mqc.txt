@@ -1,0 +1,440 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+// PhpSpreadsheet
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
+use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\Style\Conditional;
+
+class MatrizQuimicosController extends Controller
+{
+    public function index(Request $request)
+    {
+        // 1) Obtener matriz dinámica desde el SP
+        $result = DB::select('CALL sp_matriz_quimicos()');
+
+        // 2) Convertir filas a arrays para poder iterar por llaves (alias de columnas)
+        $rows = collect($result)->map(fn($r) => (array) $r);
+
+        // 3) Detectar las columnas de puestos: "DEPARTAMENTO||PUESTO||NUM"
+        $positionKeys = [];
+        if ($rows->isNotEmpty()) {
+            $first = $rows->first();
+            $positionKeys = array_values(array_filter(array_keys($first), function ($k) {
+                return str_contains($k, '||'); // PHP 8
+            }));
+        } else {
+            // Fallback: si no hay datos todavía, arma los keys desde los puestos activos
+            $puestos = DB::table('puesto_trabajo_matriz as ptm')
+                ->leftJoin('departamento as d', 'd.id_departamento', '=', 'ptm.id_departamento')
+                ->where(function ($q) {
+                    $q->whereNull('ptm.estado')->orWhere('ptm.estado', '<>', 0);
+                })
+                ->orderBy('d.departamento')
+                ->orderBy('ptm.puesto_trabajo_matriz')
+                ->get(['d.departamento', 'ptm.puesto_trabajo_matriz', 'ptm.num_empleados']);
+
+            $positionKeys = $puestos->map(function ($p) {
+                return ($p->departamento ?? 'SIN DEPTO') . '||' . $p->puesto_trabajo_matriz . '||' . ($p->num_empleados ?? 0);
+            })->all();
+        }
+
+        // 4) Agrupar para encabezados por Departamento
+        $headers = [];
+        foreach ($positionKeys as $key) {
+            [$dep, $puesto, $num] = explode('||', $key);
+            $headers[$dep][] = [
+                'key'    => $key,
+                'puesto' => $puesto,
+                'num'    => (int) $num,
+            ];
+        }
+
+        // Mapa de colores (como me pediste)
+        $colorMap = [
+            'MA' => '#ff0000', // Muy Alto
+            'A'  => '#be5014', // Alto
+            'M'  => '#ffc000', // Medio
+            'B'  => '#ffff00', // Bajo
+            'I'  => '#92d050', // Irrelevante
+        ];
+
+        return view('riesgos.matrizquimicos', [
+            'rows'         => $rows,
+            'headers'      => $headers,
+            'positionKeys' => $positionKeys,
+            'colorMap'     => $colorMap,
+        ]);
+    }
+
+    public function exportExcel(Request $request)
+{
+    // 1) Datos desde el SP (misma llamada que la vista)
+    $result = DB::select('CALL sp_matriz_quimicos()');
+    $rows = collect($result)->map(fn($r) => (array) $r);
+
+    // 2) Llaves dinámicas = columnas de puesto "DEPTO||PUESTO||NUM"
+    $positionKeys = [];
+    if ($rows->isNotEmpty()) {
+        $first = $rows->first();
+        foreach (array_keys($first) as $k) {
+            if (strpos($k, '||') !== false) {
+                $positionKeys[] = $k;
+            }
+        }
+    } else {
+        $puestos = DB::table('puesto_trabajo_matriz as ptm')
+            ->leftJoin('departamento as d', 'd.id_departamento', '=', 'ptm.id_departamento')
+            ->where(function ($q) {
+                $q->whereNull('ptm.estado')->orWhere('ptm.estado', '<>', 0);
+            })
+            ->orderBy('d.departamento')
+            ->orderBy('ptm.puesto_trabajo_matriz')
+            ->get(['d.departamento', 'ptm.puesto_trabajo_matriz', 'ptm.num_empleados']);
+        $positionKeys = $puestos->map(function ($p) {
+            return ($p->departamento ?? 'SIN DEPTO').'||'.$p->puesto_trabajo_matriz.'||'.($p->num_empleados ?? 0);
+        })->all();
+    }
+
+    // 3) Encabezados agrupados por Departamento
+    $headers = [];
+    foreach ($positionKeys as $key) {
+        [$dep, $puesto, $num] = explode('||', $key);
+        $headers[$dep][] = ['key' => $key, 'puesto' => $puesto, 'num' => (int) $num];
+    }
+
+    // 4) Mapa colores celdas MA/A/M/B/I
+    $colorMap = [
+        'MA' => 'FF0000',
+        'A'  => 'BE5014',
+        'M'  => 'FFC000',
+        'B'  => 'FFFF00',
+        'I'  => '92D050',
+    ];
+
+    // 5) Spreadsheet base
+    $spreadsheet = new Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Matriz Químicos');
+
+    // Página
+    $sheet->getPageSetup()
+        ->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
+        ->setPaperSize(PageSetup::PAPERSIZE_A4)
+        ->setFitToWidth(1)
+        ->setFitToHeight(0);
+
+    $sheet->getPageMargins()->setTop(0.4)->setRight(0.3)->setLeft(0.3)->setBottom(0.4);
+
+    // 6) Logo + bloque de títulos
+    $logoPath = public_path('img/logo.PNG'); // ajusta si es otra ruta
+    if (file_exists($logoPath)) {
+        $drawing = new Drawing();
+        $drawing->setPath($logoPath);
+        $drawing->setHeight(64);
+        $drawing->setCoordinates('A1');
+        $drawing->setOffsetX(5);
+        $drawing->setOffsetY(2);
+        $drawing->setWorksheet($sheet);
+    }
+
+    // Última columna (3 fijas + dinámicas + 1 medidas) - se actualizará luego con Cumplimiento
+    $fixedBefore = 3; // A..C  (N°, Nombre, Descripción)
+    $fixedAfter  = 1; // Medidas
+    $totalCols   = $fixedBefore + count($positionKeys) + $fixedAfter;
+    $lastColLetter = Coordinate::stringFromColumnIndex($totalCols);
+
+    // Títulos arriba (C1..C3)
+    $sheet->mergeCells("C1:{$lastColLetter}1");
+    $sheet->mergeCells("C2:{$lastColLetter}2");
+    $sheet->mergeCells("C3:{$lastColLetter}3");
+    $sheet->setCellValue('C1', 'MATRIZ DE ANÁLISIS DE RIESGO QUÍMICOS');
+    $sheet->setCellValue('C2', 'PROCESO DE SALUD Y SEGURIDAD OCUPACIONAL / OCCUPATIONAL HEALTH AND SAFETY PROCESS');
+    $sheet->setCellValue('C3', 'MATRIZ DE ANALISIS DE RIESGO / RISK ANALYSIS MATRIX');
+    $sheet->getStyle("C1:C3")->getAlignment()
+        ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+        ->setVertical(Alignment::VERTICAL_CENTER)
+        ->setWrapText(true);
+    $sheet->getStyle("C1")->getFont()->setBold(true)->setSize(14);
+    $sheet->getStyle("C2:C3")->getFont()->setSize(10);
+
+    // 7) Encabezados de tabla
+    $startRow = 6;
+    $rowDepto = $startRow;
+    $rowNums  = $startRow + 1;
+    $rowPuest = $startRow + 2;
+    $rowData  = $startRow + 3;
+
+    // Fijas izquierdas (merge vertical 3 filas)
+    $sheet->mergeCells("A{$rowDepto}:A{$rowPuest}")->setCellValue("A{$rowDepto}", 'N°');
+    $sheet->mergeCells("B{$rowDepto}:B{$rowPuest}")->setCellValue("B{$rowDepto}", 'RIESGO (NOMBRE DEL QUÍMICO)');
+    $sheet->mergeCells("C{$rowDepto}:C{$rowPuest}")->setCellValue("C{$rowDepto}", 'DESCRIPCIÓN');
+
+    // Dinámicas (puestos) desde D
+    $colIndex = 4;
+    foreach ($headers as $dep => $puestos) {
+        $span = count($puestos);
+        $colStart = Coordinate::stringFromColumnIndex($colIndex);
+        $colEnd   = Coordinate::stringFromColumnIndex($colIndex + $span - 1);
+        $sheet->mergeCells("{$colStart}{$rowDepto}:{$colEnd}{$rowDepto}");
+        $sheet->setCellValue("{$colStart}{$rowDepto}", $dep);
+        $colIndex += $span;
+    }
+
+    // Medidas (merge vertical)
+    $colMedidas = Coordinate::stringFromColumnIndex($fixedBefore + count($positionKeys) + 1);
+    $sheet->mergeCells("{$colMedidas}{$rowDepto}:{$colMedidas}{$rowPuest}");
+    $sheet->setCellValue("{$colMedidas}{$rowDepto}", 'MEDIDAS DE PREVENCIÓN Y CORRECCIÓN');
+
+    // === BLOQUE CUMPLIMIENTO (3 columnas) ===
+    $compCols = ['TOTAL','PARCIAL','NO CUMPLE'];
+    $compStartIdx = $fixedBefore + count($positionKeys) + $fixedAfter + 1;
+    $compEndIdx   = $compStartIdx + count($compCols) - 1;
+    $compStartCol = Coordinate::stringFromColumnIndex($compStartIdx);
+    $compEndCol   = Coordinate::stringFromColumnIndex($compEndIdx);
+    $lastColLetter = $compEndCol; // actualizar última columna
+
+    // Encabezado "CUMPLIMIENTO"
+    $sheet->mergeCells("{$compStartCol}{$rowDepto}:{$compEndCol}{$rowDepto}");
+    $sheet->setCellValue("{$compStartCol}{$rowDepto}", 'CUMPLIMIENTO');
+
+    // Subencabezados (fila 2→3)
+    for ($k = 0; $k < count($compCols); $k++) {
+        $col = Coordinate::stringFromColumnIndex($compStartIdx + $k);
+        $sheet->mergeCells("{$col}{$rowNums}:{$col}{$rowPuest}");
+        $sheet->setCellValue("{$col}{$rowNums}", $compCols[$k]);
+    }
+
+    // Estilos encabezados (sin fill aquí para no pisar colores específicos)
+    $headerRange = "A{$rowDepto}:{$lastColLetter}{$rowPuest}";
+    $sheet->getStyle($headerRange)->applyFromArray([
+        'font' => ['bold' => true],
+        'alignment' => [
+            'horizontal' => Alignment::HORIZONTAL_CENTER,
+            'vertical'   => Alignment::VERTICAL_CENTER,
+            'wrapText'   => true,
+        ],
+        'borders' => [
+            'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'CCCCCC']],
+        ],
+    ]);
+
+    // Colores de encabezado como en la vista
+    $sheet->getStyle("A{$rowDepto}:{$lastColLetter}{$rowDepto}")
+          ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('00B050');
+    $sheet->getStyle("A{$rowDepto}:{$lastColLetter}{$rowDepto}")
+          ->getFont()->getColor()->setRGB('FFFFFF');
+    $sheet->getStyle("A{$rowNums}:{$lastColLetter}{$rowNums}")
+          ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('ACB9CA');
+    $sheet->getStyle("A{$rowPuest}:{$lastColLetter}{$rowPuest}")
+          ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('ACB9CA');
+
+    // Colores del bloque Cumplimiento (azules)
+    $sheet->getStyle("{$compStartCol}{$rowDepto}:{$compEndCol}{$rowDepto}")
+          ->applyFromArray([
+              'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '0B5DBB']],
+              'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+              'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+              'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '000000']]],
+          ]);
+    $sheet->getStyle("{$compStartCol}{$rowNums}:{$compEndCol}{$rowPuest}")
+          ->applyFromArray([
+              'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1976D2']],
+              'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+              'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+              'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '000000']]],
+          ]);
+
+    // Fila 2: Números de empleados
+    $colIndex = 4;
+    foreach ($headers as $dep => $puestos) {
+        foreach ($puestos as $p) {
+            $col = Coordinate::stringFromColumnIndex($colIndex++);
+            $sheet->setCellValue("{$col}{$rowNums}", $p['num']);
+        }
+    }
+
+    // Fila 3: Nombres de puestos + rotación
+    $colIndex = 4;
+    foreach ($headers as $dep => $puestos) {
+        foreach ($puestos as $p) {
+            $col  = Coordinate::stringFromColumnIndex($colIndex++);
+            $cell = "{$col}{$rowPuest}";
+            $sheet->setCellValue($cell, $p['puesto']);
+            $sheet->getStyle($cell)->getAlignment()
+                ->setTextRotation(90)
+                ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+                ->setVertical(Alignment::VERTICAL_BOTTOM)
+                ->setWrapText(true);
+            $sheet->getColumnDimension($col)->setWidth(4.5);
+        }
+    }
+    $sheet->getRowDimension($rowPuest)->setRowHeight(140);
+
+    // 8) Datos
+    $r = $rowData;
+    $rowNum = 1;
+    foreach ($rows as $row) {
+        // Fijas
+        $sheet->setCellValueExplicit("A{$r}", $rowNum, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
+        $sheet->setCellValue("B{$r}", $row['RIESGO (NOMBRE DEL QUIMICO)'] ?? $row['RIESGO (NOMBRE DEL QUÍMICO)'] ?? '');
+        $sheet->setCellValue("C{$r}", $row['DESCRIPCION'] ?? '');
+
+        // Dinámicas MA/A/M/B/I
+        $colIndex = 4;
+        foreach ($headers as $dep => $puestos) {
+            foreach ($puestos as $p) {
+                $code = $row[$p['key']] ?? '';
+                $col  = Coordinate::stringFromColumnIndex($colIndex++);
+                if ($code !== '') {
+                    $sheet->setCellValue("{$col}{$r}", $code);
+                    if (isset($colorMap[$code])) {
+                        $sheet->getStyle("{$col}{$r}")->getFill()
+                            ->setFillType(Fill::FILL_SOLID)
+                            ->getStartColor()->setRGB($colorMap[$code]);
+                    }
+                    $sheet->getStyle("{$col}{$r}")->getFont()->setBold(true);
+                }
+            }
+        }
+
+        // Medidas
+        $sheet->setCellValue("{$colMedidas}{$r}", $row['MEDIDAS DE PREVENCION Y CORRECCION'] ?? '');
+
+        // Validación de Cumplimiento (3 combos con 'X')
+        // Validación de Cumplimiento (3 combos con 'X') + por defecto "TOTAL" marcado
+for ($k = 0; $k < count($compCols); $k++) {
+    $col  = Coordinate::stringFromColumnIndex($compStartIdx + $k);
+    $cell = "{$col}{$r}";
+
+    // Por defecto: 'X' en TOTAL, vacío en los demás
+    $default = ($compCols[$k] === 'TOTAL') ? 'X' : '';
+    $sheet->setCellValue($cell, $default);
+
+    $dv = $sheet->getCell($cell)->getDataValidation();
+    $dv->setType(DataValidation::TYPE_LIST);
+    $dv->setErrorStyle(DataValidation::STYLE_STOP);
+    $dv->setAllowBlank(true);
+    $dv->setShowDropDown(true);
+    $dv->setShowInputMessage(true);
+    $dv->setShowErrorMessage(true);
+    $dv->setErrorTitle('Selección inválida');
+    $dv->setError('Solo use "X" o deje en blanco.');
+    $dv->setPromptTitle('Cumplimiento');
+    $dv->setPrompt('Seleccione "X" en una sola columna.');
+    $dv->setFormula1('"X"');
+
+    $sheet->getStyle($cell)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+    // (opcional) colorear ya mismo la celda por defecto; si no, lo hará el formato condicional al abrir
+    if ($default === 'X') {
+        $sheet->getStyle($cell)->applyFromArray([
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '00B050']], // verde
+            'font' => ['bold' => true],
+        ]);
+    }
+}
+
+
+        // Bordes y ajuste
+        $sheet->getStyle("A{$r}:{$lastColLetter}{$r}")->applyFromArray([
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'CCCCCC']]],
+            'alignment' => ['vertical' => Alignment::VERTICAL_TOP, 'wrapText' => true],
+        ]);
+        $sheet->getRowDimension($r)->setRowHeight(36);
+
+        $rowNum++; $r++;
+    }
+
+    // 9) Anchos de columnas
+    $sheet->getColumnDimension('A')->setWidth(4);
+    $sheet->getColumnDimension('B')->setWidth(38);
+    $sheet->getColumnDimension('C')->setWidth(58);
+    $colIndex = 4;
+    foreach ($positionKeys as $_) {
+        $col = Coordinate::stringFromColumnIndex($colIndex++);
+        $sheet->getColumnDimension($col)->setWidth(8);
+    }
+    $sheet->getColumnDimension($colMedidas)->setWidth(60);
+    // Cumplimiento
+    for ($k = 0; $k < count($compCols); $k++) {
+        $col = Coordinate::stringFromColumnIndex($compStartIdx + $k);
+        $sheet->getColumnDimension($col)->setWidth(10);
+    }
+
+    // 10) Freeze panes (encabezado + 3 columnas fijas)
+    $sheet->freezePane('D'.$rowData);
+
+    // === Formatos condicionales (FUERA del loop) ===
+    $firstDataRow = $rowData;
+    $lastDataRow  = $r - 1;
+
+    // (a) Aviso si en la fila no hay exactamente UNA "X"
+    // Para simplicidad y precisión, aplicamos regla por fila:
+    for ($rr = $firstDataRow; $rr <= $lastDataRow; $rr++) {
+        $rangeRow = "{$compStartCol}{$rr}:{$compEndCol}{$rr}";
+        $cf = new Conditional();
+        $cf->setConditionType(Conditional::CONDITION_EXPRESSION);
+        $cf->addCondition("=COUNTIF(\${$compStartCol}{$rr}:\${$compEndCol}{$rr},\"X\")<>1");
+        $cf->getStyle()->applyFromArray([
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFF2CC']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'FF9900']]],
+        ]);
+        $existing = $sheet->getStyle($rangeRow)->getConditionalStyles();
+        $existing[] = $cf;
+        $sheet->getStyle($rangeRow)->setConditionalStyles($existing);
+    }
+
+    // (b) Colorear cada columna según "X"
+    $colColor = [
+        'TOTAL'     => '00B050', // verde
+        'PARCIAL'   => 'FFC000', // amarillo
+        'NO CUMPLE' => 'FF0000', // rojo
+    ];
+    for ($k = 0; $k < count($compCols); $k++) {
+        $colLetter = Coordinate::stringFromColumnIndex($compStartIdx + $k);
+        $rangeCol  = "{$colLetter}{$firstDataRow}:{$colLetter}{$lastDataRow}";
+
+        $cond = new Conditional();
+        $cond->setConditionType(Conditional::CONDITION_CELLIS);
+        $cond->setOperatorType(Conditional::OPERATOR_EQUAL);
+        $cond->addCondition('"X"');
+
+        $label = $compCols[$k];
+        $rgb   = $colColor[$label] ?? 'FFFFFF';
+        $cond->getStyle()->applyFromArray([
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $rgb]],
+            'font' => ['bold' => true],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+        ]);
+
+        $existing = $sheet->getStyle($rangeCol)->getConditionalStyles();
+        $existing[] = $cond;
+        $sheet->getStyle($rangeCol)->setConditionalStyles($existing);
+    }
+
+    // 12) Descargar
+    $fileName = 'Matriz_Quimicos_'.date('Ymd_His').'.xlsx';
+    $writer = new Xlsx($spreadsheet);
+    if (ob_get_length()) { ob_end_clean(); }
+    return response()->streamDownload(function () use ($writer) {
+        $writer->save('php://output');
+    }, $fileName, [
+        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ]);
+}
+
+}
+

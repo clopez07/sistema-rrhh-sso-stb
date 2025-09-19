@@ -1,0 +1,620 @@
+@extends('layouts.riesgos')
+
+@section('title', 'Señalizaciones')
+
+@section('content')
+    <nav class="flex px-5 py-3 text-gray-700 bg-blue-100 rounded-lg" aria-label="Breadcrumb">
+    <ol class="inline-flex items-center space-x-1 md:space-x-3">
+        <li class="inline-flex items-center">
+        <a href="/" class="inline-flex items-center text-sm font-medium text-black hover:text-blue-900">
+            <!-- Ícono de inicio -->
+            <svg class="w-4 h-4 mr-2 text-black" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M10 2a1 1 0 00-.707.293l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-3h2v3a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7A1 1 0 0010 2z" />
+            </svg>
+            Inicio
+        </a>
+        </li>
+        <li>
+        <div class="flex items-center">
+            <svg class="w-4 h-4 mx-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-sm font-medium text-black">Medidas de Protección por Riesgo</span>
+        </div>
+        </li>
+    </ol>
+    </nav>
+    <br>    
+
+<!-- Botón Agregar + herramientas -->
+<div class="flex justify-between items-center mb-4 gap-4 flex-wrap">
+  <div class="flex items-center gap-3 flex-wrap">
+    <!-- Botón Agregar (abre modal) -->
+    <button data-modal-target="create-modal" data-modal-toggle="create-modal" type="button"
+      class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-transparent border border-gray-900 rounded-lg hover:bg-gray-900 focus:z-10 focus:ring-2 focus:ring-gray-500">
+      <svg class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M5 12h14m-7 7V5"/>
+      </svg>
+      Agregar
+    </button>
+
+    <!-- Import oculto -->
+    <form id="importForm" action="{{ route('medidasriesgo.import') }}" method="POST" enctype="multipart/form-data" class="hidden">
+      @csrf
+      <input type="hidden" name="delete_missing" id="deleteMissingHidden" value="0">
+      <input type="file" id="excelFileInput" name="excel_file" accept=".xls,.xlsx,.xlsm"
+             onchange="document.getElementById('importForm').submit();">
+    </form>
+
+    <!-- Botón Importar + checkbox -->
+    <div class="flex items-center gap-4">
+      <button type="button"
+        onclick="document.getElementById('deleteMissingHidden').value = document.getElementById('deleteMissingCheckbox').checked ? 1 : 0; document.getElementById('excelFileInput').click();"
+        class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-transparent border border-gray-900 rounded-lg hover:bg-gray-900 focus:z-10 focus:ring-2 focus:ring-gray-500">
+        Importar
+      </button>
+      <label class="inline-flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" id="deleteMissingCheckbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+        <span class="text-sm text-gray-700">Eliminar faltantes</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Accesos rápidos -->
+  <div class="flex items-center gap-2">
+    <a href="/equipo" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-2 focus:ring-gray-500">Ver EPP</a>
+    <a href="/capacitacion" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-2 focus:ring-gray-500">Ver Capacitaciones</a>
+    <a href="/senalizacion" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-2 focus:ring-gray-500">Ver Señalizaciones</a>
+    <a href="/otras" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-2 focus:ring-gray-500">Ver Otras Medidas</a>
+  </div>
+</div>
+
+<!-- Modal CREAR (hermano, no anidado en el botón) -->
+<div id="create-modal" tabindex="-1" aria-hidden="true"
+  class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+  <!-- ancho casi full viewport -->
+  <div class="relative w-full max-w-[98vw] 2xl:max-w-[1600px] max-h-[92vh]">
+    <div class="relative bg-white rounded-lg shadow-sm">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-200">
+        <h3 class="text-lg font-semibold text-gray-900">Asignar medidas a un riesgo</h3>
+        <button type="button" data-modal-hide="create-modal"
+          class="text-gray-400 hover:bg-gray-200 hover:text-gray-900 rounded-lg w-8 h-8 flex justify-center items-center">
+          <svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
+            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-4 md:p-6 overflow-y-auto max-h-[85vh] overflow-x-auto">
+        <form id="create-form" action="{{ route('medidasriesgo.storemedidasriesgo') }}" method="POST" class="space-y-6 select-move-form">
+          @csrf
+
+          <!-- Fila 1: Riesgo -->
+          <div>
+            <label for="id_riesgo" class="block mb-2 text-sm font-medium text-gray-900">Riesgo</label>
+            <select name="id_riesgo" id="id_riesgo"
+              class="bg-gray-50 border border-gray-300 rounded-lg w-full p-2.5 text-sm min-w-[350px]" required>
+              <option value="">Seleccione un riesgo</option>
+              @foreach ($riesgos as $riesgo)
+                <option value="{{ $riesgo->id_riesgo }}">{{ $riesgo->nombre_riesgo }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <!-- Fila 2: Área (opcional) -->
+          <div>
+            <label for="id_area" class="block mb-2 text-sm font-medium text-gray-900">Área (opcional)</label>
+            <select name="id_area" id="id_area"
+              class="bg-gray-50 border border-gray-300 rounded-lg w-full p-2.5 text-sm min-w-[350px]">
+              <option value="">Seleccione un área</option>
+              @foreach ($areas as $area)
+                <option value="{{ $area->id_area }}">{{ $area->area }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <!-- Fila 3: EPP y Capacitaciones (una columna para más ancho; dos columnas solo en >=1536px) -->
+          <div class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+            <!-- EPP -->
+            <div class="2xl:col-span-1">
+              <label class="block mb-2 text-sm font-medium text-gray-900">EPP</label>
+              <input type="text" id="search-epp" placeholder="Buscar EPP..."
+                     oninput="filterSelects(this.value, ['epp-left','epp-right'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <!-- triple columna: select | botones | select -->
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="epp-left"
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($epps as $epp)
+                    <option value="{{ $epp->id_epp }}" title="{{ $epp->equipo }}">{{ $epp->equipo }}</option>
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button" onclick="moveOptions('epp-left','epp-right')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button" onclick="moveOptions('epp-right','epp-left')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="epp-right" name="epp[]" data-select-all
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple></select>
+              </div>
+            </div>
+
+            <!-- Capacitaciones -->
+            <div class="2xl:col-span-1">
+              <label class="block mb-2 text-sm font-medium text-gray-900">Capacitaciones</label>
+              <input type="text" id="search-cap" placeholder="Buscar capacitaciones..."
+                     oninput="filterSelects(this.value, ['cap-left','cap-right'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="cap-left"
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($capacitaciones as $cap)
+                    <option value="{{ $cap->id_capacitacion }}" title="{{ $cap->capacitacion }}">{{ $cap->capacitacion }}</option>
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button" onclick="moveOptions('cap-left','cap-right')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button" onclick="moveOptions('cap-right','cap-left')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="cap-right" name="capacitaciones[]" data-select-all
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple></select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila 4: Señalizaciones y Otras medidas (misma lógica) -->
+          <div class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+            <!-- Señalizaciones -->
+            <div class="2xl:col-span-1">
+              <label class="block mb-2 text-sm font-medium text-gray-900">Señalizaciones</label>
+              <input type="text" id="search-sen" placeholder="Buscar señalizaciones..."
+                     oninput="filterSelects(this.value, ['sen-left','sen-right'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="sen-left"
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($senalizaciones as $s)
+                    <option value="{{ $s->id_senalizacion }}" title="{{ $s->senalizacion }}">{{ $s->senalizacion }}</option>
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button" onclick="moveOptions('sen-left','sen-right')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button" onclick="moveOptions('sen-right','sen-left')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="sen-right" name="senalizaciones[]" data-select-all
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple></select>
+              </div>
+            </div>
+
+            <!-- Otras Medidas -->
+            <div class="2xl:col-span-1">
+              <label class="block mb-2 text-sm font-medium text-gray-900">Otras Medidas</label>
+              <input type="text" id="search-otras" placeholder="Buscar otras medidas..."
+                     oninput="filterSelects(this.value, ['otras-left','otras-right'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="otras-left"
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($otras as $o)
+                    <option value="{{ $o->id_otras_medidas }}" title="{{ $o->otras_medidas }}">{{ $o->otras_medidas }}</option>
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button" onclick="moveOptions('otras-left','otras-right')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button" onclick="moveOptions('otras-right','otras-left')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="otras-right" name="otras[]" data-select-all
+                        class="h-80 w-full border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple></select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div>
+            <button type="submit"
+              class="w-full text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg text-sm px-5 py-2.5">
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Mueve las opciones seleccionadas entre listas
+  function moveOptions(fromId, toId) {
+    const from = document.getElementById(fromId);
+    const to = document.getElementById(toId);
+    if (!from || !to) return;
+
+    const selected = Array.from(from.selectedOptions);
+    selected.forEach(opt => {
+      // quitar del origen y agregar al destino
+      from.removeChild(opt);
+      to.add(opt);
+      // marcar seleccionada en el destino para facilitar múltiples movimientos
+      opt.selected = true;
+    });
+  }
+
+  // Filtra opciones por texto en una o más listas del mismo bloque
+  function filterSelects(term, selectIds) {
+    const q = (term || '').toLowerCase();
+    (selectIds || []).forEach(function(id){
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      Array.from(sel.options).forEach(function(opt){
+        const text = (opt.text || '').toLowerCase();
+        opt.hidden = q && !text.includes(q);
+      });
+    });
+  }
+
+  // Antes de enviar, marcar todas las opciones de selects con data-select-all
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('form.select-move-form').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        form.querySelectorAll('select[data-select-all]')
+          .forEach(sel => Array.from(sel.options).forEach(o => o.selected = true));
+      });
+    });
+  });
+</script>
+
+    </div>
+    <form action="{{ route('medidasriesgo') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
+        <div class="relative w-full">
+            <input
+                type="text"
+                name="search"
+                value="{{ request('search') }}"
+                placeholder="Buscar..."
+                oninput="this.form.submit()"
+                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
+                    viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
+                </svg>
+            </div>
+        </div>
+    </form>
+    </div>
+    </div>
+    </div>
+
+
+    <div class="relative overflow-x-auto shadow-md sm:rounded-lg" style="margin-top: 20px;">
+        <table id="tablaCapacitaciones" class="w-full text-sm text-left rtl:text-right text-gray-500">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3">
+                        Riesgo
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Área
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        EPP
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Capacitaciones
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Señalizaciones
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Otras Medidas
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Acción
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($medidasriesgo as $medidasriesgos)
+                <tr class="bg-white border-b border-gray-200 hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->nombre_riesgo }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->area }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->epps }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->capacitaciones }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->senalizaciones }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $medidasriesgos->otras_medidas }}
+                    </td>
+                    <td class="flex items-center px-6 py-4">
+                        <!-- Editar -->
+                        <button data-modal-target="edit-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" data-modal-toggle="edit-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" class="font-medium text-blue-600 hover:underline ms-3">Editar</button>
+
+                        <!-- Eliminar -->
+                        <button data-modal-target="delete-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" data-modal-toggle="delete-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" class="font-medium text-red-600 hover:underline ms-3">Eliminar</button>
+
+                        <!-- Modal Eliminar -->
+                        <div id="delete-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" tabindex="-1" class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+                            <div class="relative p-4 w-full max-w-md max-h-full">
+                                <div class="relative bg-white rounded-lg shadow-sm">
+                                    <button type="button" class="absolute top-3 end-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center" data-modal-hide="delete-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}">
+                                        <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/>
+                                        </svg>
+                                        <span class="sr-only">Close modal</span>
+                                    </button>
+                                    <div class="p-4 md:p-5 text-center">
+                                        <svg class="mx-auto mb-4 text-gray-400 w-12 h-12" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 11V6m0 8h.01M19 10a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                                        </svg>
+                                        <h3 class="mb-5 text-lg font-normal text-gray-600">¿Está seguro de eliminar las medidas para este riesgo?</h3>
+                                        <form action="{{ route('medidasriesgo.destroy', [$medidasriesgos->id_riesgo, $medidasriesgos->id_area ?? 0]) }}" method="POST">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center">
+                                                Sí, eliminar
+                                            </button>
+                                            <button data-modal-hide="delete-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}" type="button" class="py-2.5 px-5 ms-3 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100">
+                                                Cancelar
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal Editar (completo) -->
+<div id="edit-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+     tabindex="-1" aria-hidden="true"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+  <div class="relative w-full max-w-[98vw] 2xl:max-w-[1600px] max-h-[92vh]">
+    <div class="relative bg-white rounded-lg shadow-sm">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-200">
+        <h3 class="text-lg font-semibold text-gray-900">
+          Editar medidas para: {{ $medidasriesgos->nombre_riesgo }}
+        </h3>
+        <button type="button"
+                data-modal-hide="edit-modal-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                class="text-gray-400 hover:bg-gray-200 hover:text-gray-900 rounded-lg w-8 h-8 flex justify-center items-center">
+          <svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
+            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-4 md:p-6 overflow-y-auto max-h-[75vh]">
+        @php
+          $eppSel = array_filter(explode(',', $medidasriesgos->epp_ids ?? ''));
+          $capSel = array_filter(explode(',', $medidasriesgos->cap_ids ?? ''));
+          $senSel = array_filter(explode(',', $medidasriesgos->sen_ids ?? ''));
+          $otrSel = array_filter(explode(',', $medidasriesgos->otras_ids ?? ''));
+        @endphp
+
+        <div class="mb-3">
+          <label class="block mb-1 text-sm font-medium text-gray-900">Área</label>
+          <input type="text" class="bg-gray-100 border border-gray-300 rounded-lg w-full p-2.5 text-sm"
+                 value="{{ $medidasriesgos->area ?? 'Sin área' }}" disabled>
+        </div>
+
+        <form class="space-y-8 select-move-form"
+              method="POST"
+              action="{{ route('medidasriesgo.update', [$medidasriesgos->id_riesgo, $medidasriesgos->id_area ?? 0]) }}">
+          @csrf
+          @method('PUT')
+
+          <!-- EPP + Capacitaciones -->
+          <div class="grid grid-cols-1 2xl:grid-cols-2 gap-8">
+            <!-- EPP -->
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-900">EPP</label>
+              <input type="text"
+                     id="search-epp-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                     placeholder="Buscar EPP..."
+                     oninput="filterSelects(this.value, ['epp-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','epp-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="epp-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($epps as $epp)
+                    @if (!in_array((string)$epp->id_epp, $eppSel))
+                      <option value="{{ $epp->id_epp }}" title="{{ $epp->equipo }}">{{ $epp->equipo }}</option>
+                    @endif
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button"
+                          onclick="moveOptions('epp-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','epp-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button"
+                          onclick="moveOptions('epp-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','epp-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="epp-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        name="epp[]" data-select-all
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($epps as $epp)
+                    @if (in_array((string)$epp->id_epp, $eppSel))
+                      <option value="{{ $epp->id_epp }}" title="{{ $epp->equipo }}">{{ $epp->equipo }}</option>
+                    @endif
+                  @endforeach
+                </select>
+              </div>
+            </div>
+
+            <!-- Capacitaciones -->
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-900">Capacitaciones</label>
+              <input type="text"
+                     id="search-cap-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                     placeholder="Buscar capacitaciones..."
+                     oninput="filterSelects(this.value, ['cap-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','cap-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="cap-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($capacitaciones as $cap)
+                    @if (!in_array((string)$cap->id_capacitacion, $capSel))
+                      <option value="{{ $cap->id_capacitacion }}" title="{{ $cap->capacitacion }}">{{ $cap->capacitacion }}</option>
+                    @endif
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button"
+                          onclick="moveOptions('cap-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','cap-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button"
+                          onclick="moveOptions('cap-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','cap-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="cap-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        name="capacitaciones[]" data-select-all
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($capacitaciones as $cap)
+                    @if (in_array((string)$cap->id_capacitacion, $capSel))
+                      <option value="{{ $cap->id_capacitacion }}" title="{{ $cap->capacitacion }}">{{ $cap->capacitacion }}</option>
+                    @endif
+                  @endforeach
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Señalizaciones + Otras Medidas -->
+          <div class="grid grid-cols-1 2xl:grid-cols-2 gap-8">
+            <!-- Señalizaciones -->
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-900">Señalizaciones</label>
+              <input type="text"
+                     id="search-sen-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                     placeholder="Buscar señalizaciones..."
+                     oninput="filterSelects(this.value, ['sen-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','sen-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="sen-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($senalizaciones as $s)
+                    @if (!in_array((string)$s->id_senalizacion, $senSel))
+                      <option value="{{ $s->id_senalizacion }}" title="{{ $s->senalizacion }}">{{ $s->senalizacion }}</option>
+                    @endif
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button"
+                          onclick="moveOptions('sen-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','sen-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button"
+                          onclick="moveOptions('sen-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','sen-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="sen-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        name="senalizaciones[]" data-select-all
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($senalizaciones as $s)
+                    @if (in_array((string)$s->id_senalizacion, $senSel))
+                      <option value="{{ $s->id_senalizacion }}" title="{{ $s->senalizacion }}">{{ $s->senalizacion }}</option>
+                    @endif
+                  @endforeach
+                </select>
+              </div>
+            </div>
+
+            <!-- Otras Medidas -->
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-900">Otras Medidas</label>
+              <input type="text"
+                     id="search-otras-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                     placeholder="Buscar otras medidas..."
+                     oninput="filterSelects(this.value, ['otras-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','otras-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}'])"
+                     class="mb-2 w-full border border-gray-300 rounded-lg p-2 text-sm" />
+              <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                <select id="otras-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($otras as $o)
+                    @if (!in_array((string)$o->id_otras_medidas, $otrSel))
+                      <option value="{{ $o->id_otras_medidas }}" title="{{ $o->otras_medidas }}">{{ $o->otras_medidas }}</option>
+                    @endif
+                  @endforeach
+                </select>
+                <div class="flex flex-col justify-center gap-2 w-10">
+                  <button type="button"
+                          onclick="moveOptions('otras-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','otras-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&gt;</button>
+                  <button type="button"
+                          onclick="moveOptions('otras-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}','otras-left-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}')"
+                          class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-sm">&lt;</button>
+                </div>
+                <select id="otras-right-{{ $medidasriesgos->id_riesgo }}-{{ $medidasriesgos->id_area ?? 0 }}"
+                        name="otras[]" data-select-all
+                        class="h-80 w-full min-w-[420px] md:min-w-[560px] border border-gray-300 rounded-lg p-1 text-sm overflow-y-auto"
+                        multiple>
+                  @foreach ($otras as $o)
+                    @if (in_array((string)$o->id_otras_medidas, $otrSel))
+                      <option value="{{ $o->id_otras_medidas }}" title="{{ $o->otras_medidas }}">{{ $o->otras_medidas }}</option>
+                    @endif
+                  @endforeach
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <button type="submit"
+                    class="w-full text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg text-sm px-5 py-2.5">
+              Guardar cambios
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+        {{ $medidasriesgo->links() }}
+    </div>
+
+@endsection

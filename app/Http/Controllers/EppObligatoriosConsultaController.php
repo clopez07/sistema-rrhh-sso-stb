@@ -1,0 +1,238 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class EppObligatoriosConsultaController extends Controller
+{
+    public function index(Request $request)
+    {
+        $puestoId = $request->integer('puesto');
+        $anio     = $request->integer('anio') ?: intval(date('Y'));
+
+        $puestos = DB::table('puesto_trabajo')
+            ->select('id_puesto_trabajo','puesto_trabajo','departamento')
+            ->where(function ($q) {
+                $q->where('estado', 1)->orWhereNull('estado');
+            })
+            ->orderBy('puesto_trabajo')
+            ->get();
+
+        $years = range(intval(date('Y')), intval(date('Y')) - 10);
+
+        $matriz = [];
+        $empleados = collect();
+        $eppsObligatorios = collect();
+
+        if ($puestoId) {
+            $eppsObligatorios = DB::table('puestos_epp as pe')
+                ->join('epp as e', 'e.id_epp', '=', 'pe.id_epp')
+                ->where('pe.id_puesto_trabajo', $puestoId)
+                ->orderBy('e.equipo')
+                ->get([
+                    'e.id_epp',
+                    'e.equipo',
+                    'e.codigo',
+                    'e.marca',
+                    'e.id_tipo_proteccion'
+                ]);
+
+            $empleados = DB::table('empleado')
+                ->select('id_empleado', 'nombre_completo', 'codigo_empleado', 'identidad')
+                ->where('id_puesto_trabajo', $puestoId)
+                ->where(function ($q) {
+                    $q->where('estado', 1)->orWhereNull('estado');
+                })
+                ->orderBy('nombre_completo')
+                ->get();
+
+        $asignaciones = collect();
+        if ($eppsObligatorios->count() && $empleados->count()) {
+            $eppIds      = $eppsObligatorios->pluck('id_epp')->all();
+            $empleadoIds = $empleados->pluck('id_empleado')->all();
+
+// ===== PARSER ROBUSTO PARA fecha_entrega_epp (VARCHAR) =====
+$raw   = "LOWER(TRIM(asig.fecha_entrega_epp))";
+$clean = "
+    REPLACE(
+      REPLACE(
+        REPLACE(
+          REPLACE($raw, 'a. m.', ''),
+        'p. m.', ''),
+      'a.m.', ''),
+    'p.m.', '')
+";
+$clean = "REPLACE(REPLACE($clean, ',', ''), '  ', ' ')"; // quita comas y dobles espacios
+$firstToken = "SUBSTRING_INDEX($clean, ' ', 1)";
+$isoToken   = "SUBSTRING_INDEX($clean, 't', 1)"; // para '2025-09-06T14:22:00'
+
+// Orden: intentos directos, luego por primer token, luego por token ISO
+$parsed = "COALESCE(
+    STR_TO_DATE($clean, '%Y-%m-%d'),
+    STR_TO_DATE($clean, '%Y/%m/%d'),
+    STR_TO_DATE($clean, '%d/%m/%Y'),
+    STR_TO_DATE($clean, '%d-%m-%Y'),
+    STR_TO_DATE($clean, '%m/%d/%Y'),
+    STR_TO_DATE($clean, '%m-%d-%Y'),
+    STR_TO_DATE($clean, '%d.%m.%Y'),
+    STR_TO_DATE($firstToken, '%Y-%m-%d'),
+    STR_TO_DATE($firstToken, '%d/%m/%Y'),
+    STR_TO_DATE($firstToken, '%m/%d/%Y'),
+    STR_TO_DATE($firstToken, '%d-%m-%Y'),
+    STR_TO_DATE($isoToken,   '%Y-%m-%d')
+)";
+
+// ===== Consulta de asignaciones con filtro por año =====
+$asignaciones = DB::table('asignacion_epp as asig')
+    ->select('asig.id_epp','asig.id_empleado')
+    ->selectRaw("DATE_FORMAT(MAX($parsed), '%Y-%m-%d') as fecha")
+    ->whereIn('asig.id_epp', $eppIds)
+    ->whereIn('asig.id_empleado', $empleadoIds)
+    ->whereRaw("YEAR($parsed) = ?", [$anio])   // sólo del año seleccionado
+    ->groupBy('asig.id_epp','asig.id_empleado')
+    ->get();
+
+        }
+
+        $recibido = [];
+        foreach ($asignaciones as $a) {
+            $recibido[$a->id_epp][$a->id_empleado] = $a->fecha;
+        }
+
+        $matriz = [];
+        foreach ($eppsObligatorios as $epp) {
+            $si = [];
+            $no = [];
+            foreach ($empleados as $emp) {
+                $fecha = $recibido[$epp->id_epp][$emp->id_empleado] ?? null;
+                if ($fecha) {
+                    $si[] = ['empleado' => $emp, 'fecha' => $fecha];
+                } else {
+                    $no[] = $emp;
+                }
+            }
+            $matriz[] = [
+                'epp'        => $epp,
+                'asignados'  => $si,
+                'pendientes' => $no,
+                'total_emp'  => $empleados->count(),
+            ];
+        }
+        }
+
+        return view('riesgos.epp_obligatorios', [
+            'puestos'          => $puestos,
+            'years'            => $years,
+            'puestoId'         => $puestoId,
+            'anio'             => $anio,
+            'matriz'           => $matriz,
+            'empleados'        => $empleados,
+            'eppsObligatorios' => $eppsObligatorios,
+        ]);
+    }
+
+    public function export(Request $request)
+    {
+        $puestoId = $request->integer('puesto');
+        $anio     = $request->integer('anio') ?: intval(date('Y'));
+
+        if (!$puestoId) {
+            return redirect()->route('riesgos.epp.obligatorios')
+                ->with('error', 'Selecciona un puesto para exportar.');
+        }
+
+        $eppsObligatorios = DB::table('puestos_epp as pe')
+            ->join('epp as e', 'e.id_epp', '=', 'pe.id_epp')
+            ->where('pe.id_puesto_trabajo', $puestoId)
+            ->orderBy('e.equipo')
+            ->get(['e.id_epp','e.equipo','e.codigo','e.marca']);
+
+        $empleados = DB::table('empleado')
+            ->select('id_empleado','nombre_completo','codigo_empleado','identidad')
+            ->where('id_puesto_trabajo', $puestoId)
+            ->where(function ($q) { $q->where('estado', 1)->orWhereNull('estado'); })
+            ->orderBy('nombre_completo')
+            ->get();
+
+        $rows = [];
+        if ($eppsObligatorios->count() && $empleados->count()) {
+            $eppIds      = $eppsObligatorios->pluck('id_epp')->all();
+            $empleadoIds = $empleados->pluck('id_empleado')->all();
+
+            $raw = "TRIM(asig.fecha_entrega_epp)";
+            $firstToken = "SUBSTRING_INDEX($raw, ' ', 1)";
+            $parsed = "COALESCE(
+                CAST(asig.fecha_entrega_epp AS DATE),
+                STR_TO_DATE($raw, '%Y-%m-%d'),
+                STR_TO_DATE($raw, '%Y/%m/%d'),
+                STR_TO_DATE($raw, '%d/%m/%Y'),
+                STR_TO_DATE($raw, '%d-%m-%Y'),
+                STR_TO_DATE($raw, '%d.%m.%Y'),
+                STR_TO_DATE($raw, '%Y-%m-%d %H:%i:%s'),
+                STR_TO_DATE($raw, '%d/%m/%Y %H:%i:%s'),
+                STR_TO_DATE($firstToken, '%Y-%m-%d'),
+                STR_TO_DATE($firstToken, '%d/%m/%Y'),
+                STR_TO_DATE(REPLACE($raw,'/','-'), '%d-%m-%Y'),
+                STR_TO_DATE(REPLACE($raw,'-','/'), '%d/%m/%Y')
+            )";
+
+            $asig = DB::table('asignacion_epp as asig')
+                ->select('asig.id_epp','asig.id_empleado')
+                ->selectRaw("DATE_FORMAT(MAX($parsed), '%Y-%m-%d') as fecha")
+                ->whereIn('asig.id_epp', $eppIds)
+                ->whereIn('asig.id_empleado', $empleadoIds)
+                ->whereRaw("YEAR($parsed) = ?", [$anio])
+                ->groupBy('asig.id_epp','asig.id_empleado')
+                ->get();
+
+            $idxFecha = [];
+            foreach ($asig as $a) {
+                $idxFecha[$a->id_epp][$a->id_empleado] = $a->fecha;
+            }
+
+            foreach ($eppsObligatorios as $epp) {
+                foreach ($empleados as $emp) {
+                    $fecha = $idxFecha[$epp->id_epp][$emp->id_empleado] ?? null;
+                    $rows[] = [
+                        'EPP'       => $epp->equipo,
+                        'CODIGO'    => $epp->codigo,
+                        'MARCA'     => $epp->marca,
+                        'EMPLEADO'  => $emp->nombre_completo,
+                        'IDENTIDAD' => $emp->identidad,
+                        'COD_EMPL'  => $emp->codigo_empleado,
+                        'ESTADO'    => $fecha ? 'ENTREGADO' : 'PENDIENTE',
+                        'FECHA'     => $fecha,
+                        'ANIO'      => $anio,
+                    ];
+                }
+            }
+        }
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $headers = ['EPP','CODIGO','MARCA','EMPLEADO','IDENTIDAD','COD_EMPL','ESTADO','FECHA','ANIO'];
+        $col = 'A';
+        foreach ($headers as $h) { $sheet->setCellValue($col.'1', $h); $col++; }
+        $r = 2;
+        foreach ($rows as $row) {
+            $c = 'A';
+            foreach ($headers as $h) {
+                $sheet->setCellValue($c.$r, $row[$h] ?? null);
+                $c++;
+            }
+            $r++;
+        }
+        $sheet->getStyle('A1:I1')->getFont()->setBold(true);
+        $sheet->getStyle('H2:H'.($r-1))->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+
+        $fileName = 'EPP_Obligatorios_'.$puestoId.'_'.$anio.'.xlsx';
+        $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+}

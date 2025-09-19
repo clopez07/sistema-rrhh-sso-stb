@@ -1,0 +1,77 @@
+                $h = $sheet->getRowDimension($row)->getRowHeight();
+                if ($h > -1) { $sheet->getRowDimension($destRow)->setRowHeight($h); }
+            }
+
+            // 3. Merges del bloque (con offset)
+            foreach ($baseMerges as $merge) {
+                [$s, $e] = [Coordinate::rangeBoundaries($merge)[0], Coordinate::rangeBoundaries($merge)[1]];
+                [$sc, $sr] = $s; [$ec, $er] = $e;
+                $sheet->mergeCells(
+                    Coordinate::stringFromColumnIndex($sc) . ($sr + $offsetRows) . ':' .
+                    Coordinate::stringFromColumnIndex($ec) . ($er + $offsetRows)
+                );
+            }
+
+            // 4. Estilos: copiar estilo del rango BASE completo en un disparo
+            $baseStyle = $sheet->getStyle("A{$BLOCK_TOP}:{$highestCol}{$BLOCK_BOTTOM}");
+            $sheet->duplicateStyle($baseStyle, $destRange);
+
+            // 5. Dibujos/Logos: solo copiar en el primer bloque para evitar duplicados infinitos
+            if ($b == 0) {
+                $this->cloneDrawingsWithOffset($sheet, $sheet, $offsetRows, $tempFiles);
+            }
+
+            // 6. Salto de página antes de este bloque (excepto el primero)
+            if ($b > 0) {
+                $sheet->setBreak("A{$destTop}", Worksheet::BREAK_ROW);
+            }
+
+            // 7. Encabezados del bloque
+            $sheet->setCellValue('B' . ($CAB_NOMBRE_ROW + $offsetRows), $info->nombre);
+            $sheet->setCellValue('B' . ($CAB_PUESTO_ROW + $offsetRows), $info->puesto);
+            $sheet->setCellValue('G' . ($CAB_NOMBRE_ROW + $offsetRows), $info->codigo);
+            $sheet->setCellValue('G' . ($CAB_PUESTO_ROW + $offsetRows), $info->departamento);
+
+            // 8. Detalle
+            $inicioIdx = $b * $FILAS_POR_BLOQUE;
+            $finIdx    = min($inicioIdx + $FILAS_POR_BLOQUE, $total);
+
+            $fila = $FILA_INICIO + $offsetRows;
+            for ($i = $inicioIdx; $i < $finIdx; $i++, $fila++) {
+                $cap = $regs[$i];
+                $sheet->setCellValue("A{$fila}", Carbon::parse($cap->fecha_recibida)->format('d/m/Y'));
+                $sheet->setCellValue("B{$fila}", $cap->instructor);
+                $sheet->setCellValue("D{$fila}", $cap->capacitacion);
+            }
+            // Limpia sobrantes si el último bloque no llena todas las filas
+            for (; $fila < $FILA_INICIO + $offsetRows + $FILAS_POR_BLOQUE; $fila++) {
+                $sheet->setCellValue("A{$fila}", null);
+                $sheet->setCellValue("B{$fila}", null);
+                $sheet->setCellValue("D{$fila}", null);
+            }
+        }
+
+        /* ---- 4) Configuración de impresión (para ver varias páginas) ---- */
+        $lastUsedRow = $bloques * $BLOCK_HEIGHT;
+        $sheet->getPageSetup()->setPrintArea("A1:{$highestCol}{$lastUsedRow}");
+
+        $setup = $sheet->getPageSetup();
+        $setup->setFitToPage(false); // desactivar “Ajustar a 1 página”
+        $setup->setScale(100);
+        $setup->setFitToWidth(1);
+        $setup->setFitToHeight(0);
+
+        $sheet->getPageMargins()->setTop(0.5)->setBottom(0.5)->setLeft(0.4)->setRight(0.4);
+        $setup->setHorizontalCentered(true);
+        $sheet->setSelectedCell('A1');
+
+        /* ---- 5) Guardar y descargar ---- */
+        $fileName = 'Registro_Capacitaciones_' . preg_replace('/\s+/', '_', $info->nombre) . '.xlsx';
+        $tempPath = storage_path('app/public/' . $fileName);
+        (new Xlsx($spreadsheet))->save($tempPath);
+
+        foreach ($tempFiles as $tmp) { @unlink($tmp); }
+
+        return response()->download($tempPath)->deleteFileAfterSend(true);
+    }
+}
