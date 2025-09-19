@@ -63,7 +63,20 @@ class IdentificacionRiesgosController extends Controller
     {
         $puestos = DB::table('puesto_trabajo_matriz as p')
             ->leftJoin('departamento as d', 'p.id_departamento', '=', 'd.id_departamento')
+            ->leftJoin('identificacion_riesgos as ir', 'ir.id_puesto_trabajo_matriz', '=', 'p.id_puesto_trabajo_matriz')
             ->select(
+                'p.id_puesto_trabajo_matriz',
+                'p.puesto_trabajo_matriz',
+                'p.id_departamento',
+                'p.num_empleados',
+                'p.descripcion_general',
+                'p.actividades_diarias',
+                'p.objetivo_puesto',
+                'p.estado',
+                'd.departamento',
+                DB::raw('MAX(CASE WHEN ir.id_identificacion_riesgos IS NULL THEN 0 ELSE 1 END) AS tiene_ident')
+            )
+            ->groupBy(
                 'p.id_puesto_trabajo_matriz',
                 'p.puesto_trabajo_matriz',
                 'p.id_departamento',

@@ -92,6 +92,32 @@
   /* Opcional: ajustar ancho de la columna TIPO si quieres más angosta */
   /* .risk-table td.tipo{ width:32px !important; } */
 
+  .puesto-layout{ display:flex; gap:16px; align-items:stretch; }
+  .puesto-main{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .puesto-main.sheet{ flex:1 1 auto; }
+  .puestos-sidebar{ width:240px; border:1px solid var(--border); border-radius:6px; padding:12px; background:#f6f6f6; font-size:12px; line-height:1.3; display:flex; flex-direction:column; height:490px; }
+  .puestos-sidebar__header{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+  .puestos-sidebar__title{ font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+  .puestos-sidebar__legend{ display:flex; gap:10px; flex-wrap:wrap; font-size:11px; align-items:center; }
+  .puestos-sidebar__legend span{ display:flex; align-items:center; gap:4px; }
+  .puestos-sidebar__search{ margin-top:4px; }
+  .puestos-sidebar__input{ width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font:inherit; background:#fff; }
+  .puestos-sidebar__scroll{ flex:1 1 auto; overflow:auto; border:1px solid var(--border); border-radius:4px; background:#fff; }
+  .puestos-sidebar__table{ width:100%; border-collapse:collapse; font-size:11px; }
+  .puestos-sidebar__table td{ padding:6px 8px; border-bottom:1px solid rgba(0,0,0,.08); }
+  .puestos-sidebar__name{ width:60%; }
+  .puestos-sidebar__status{ width:40%; text-align:right; white-space:nowrap; }
+  .puestos-sidebar__row--with .puestos-sidebar__status{ color:#1f7a35; font-weight:600; }
+  .puestos-sidebar__row--pending .puestos-sidebar__status{ color:#b3261e; font-weight:600; }
+  .puestos-sidebar__row--active{ background:#e8f3ff; }
+  .puestos-sidebar__row--active td{ font-weight:600; }
+  .puestos-sidebar__row--empty td,
+  .puestos-sidebar__row--no-results td{ text-align:center; color:#666; font-style:italic; }
+  .puestos-sidebar__row:last-child td{ border-bottom:none; }
+  .status-dot{ display:inline-block; width:10px; height:10px; border-radius:50%; background:#9e9e9e; }
+  .status-dot--con{ background:#1f7a35; }
+  .status-dot--sin{ background:#b3261e; }
+
   .actions{ margin-top:12px; }
 .btn-guardar{
   display:block;
@@ -112,7 +138,7 @@
   background:#9ccaa8; color:#fff; cursor:not-allowed; box-shadow:none;
 }
 /* No mostrar al imprimir */
-@media print{ .actions{ display:none; } }
+@media print{ .actions{ display:none; } .puestos-sidebar{ display:none; } .puesto-layout{ display:block; } }
 </style>
 
 <script>
@@ -158,55 +184,94 @@
     </div>
     <hr class="head-hr">
 
-    <div class="bar">Datos Generales del Puesto</div>
-<table class="sheet">
-  <colgroup><col style="width:36%"><col style="width:64%"></colgroup>
-  <tr>
-    <td class="label">Puesto de Trabajo Analizado</td>
-    <td class="field">
-      <input type="hidden" name="id_puesto_trabajo_matriz" id="puesto_id" value="{{ $id_puesto_trabajo_matriz ?? '' }}">
-      <input type="text" id="puesto-input" list="puestos-list" class="cell-input" placeholder="Escribe para buscar…" autocomplete="off" value="{{ old('puesto_nombre') }}">
-      <datalist id="puestos-list">
-        @foreach ($puestos as $p)
-          <option data-id="{{ $p->id_puesto_trabajo_matriz }}" value="{{ $p->puesto_trabajo_matriz }}"></option>
-        @endforeach
-      </datalist>
-    </td>
-  </tr>
+    <div class="puesto-layout">
+      <div class="puesto-main">
+          <div class="bar">Datos Generales del Puesto</div>
+      <table class="sheet">
+        <colgroup><col style="width:36%"><col style="width:64%"></colgroup>
+        <tr>
+          <td class="label">Puesto de Trabajo Analizado</td>
+          <td class="field">
+            <input type="hidden" name="id_puesto_trabajo_matriz" id="puesto_id" value="{{ $id_puesto_trabajo_matriz ?? '' }}">
+            <input type="text" id="puesto-input" list="puestos-list" class="cell-input" placeholder="Escribe para buscar…" autocomplete="off" value="{{ old('puesto_nombre') }}">
+            <datalist id="puestos-list">
+              @foreach ($puestos as $p)
+                <option data-id="{{ $p->id_puesto_trabajo_matriz }}" value="{{ $p->puesto_trabajo_matriz }}"></option>
+              @endforeach
+            </datalist>
+          </td>
+        </tr>
 
-  <tr>
-    <td class="label">Departamento</td>
-    <td class="field"><input class="cell-input" type="text" name="departamento" disabled></td>
-  </tr>
+        <tr>
+          <td class="label">Departamento</td>
+          <td class="field"><input class="cell-input" type="text" name="departamento" disabled></td>
+        </tr>
 
-  <tr>
-    <td class="label">N° de empleados por puesto de trabajo</td>
-    <td class="field">
-      <input class="cell-input" type="number" min="0" name="ptm_num_empleados" value="{{ old('ptm_num_empleados') }}">
-    </td>
-  </tr>
+        <tr>
+          <td class="label">N° de empleados por puesto de trabajo</td>
+          <td class="field">
+            <input class="cell-input" type="number" min="0" name="ptm_num_empleados" value="{{ old('ptm_num_empleados') }}">
+          </td>
+        </tr>
 
-  <tr>
-    <td class="label">Descripción general del puesto</td>
-    <td class="field">
-      <textarea class="cell-input" name="ptm_descripcion_general" rows="3">{{ old('ptm_descripcion_general') }}</textarea>
-    </td>
-  </tr>
+        <tr>
+          <td class="label">Descripción general del puesto</td>
+          <td class="field">
+            <textarea class="cell-input" name="ptm_descripcion_general" rows="3">{{ old('ptm_descripcion_general') }}</textarea>
+          </td>
+        </tr>
 
-  <tr>
-    <td class="label">Actividades diarias</td>
-    <td class="field">
-      <textarea class="cell-input" name="ptm_actividades_diarias" rows="3">{{ old('ptm_actividades_diarias') }}</textarea>
-    </td>
-  </tr>
+        <tr>
+          <td class="label">Actividades diarias</td>
+          <td class="field">
+            <textarea class="cell-input" name="ptm_actividades_diarias" rows="3">{{ old('ptm_actividades_diarias') }}</textarea>
+          </td>
+        </tr>
 
-  <tr>
-    <td class="label">Objetivo del puesto</td>
-    <td class="field">
-      <textarea class="cell-input objetivo" name="ptm_objetivo_puesto" rows="3">{{ old('ptm_objetivo_puesto') }}</textarea>
-    </td>
-  </tr>
-</table>
+        <tr>
+          <td class="label">Objetivo del puesto</td>
+          <td class="field">
+            <textarea class="cell-input objetivo" name="ptm_objetivo_puesto" rows="3">{{ old('ptm_objetivo_puesto') }}</textarea>
+          </td>
+        </tr>
+      </table>
+      </div>
+      <aside class="puestos-sidebar">
+        <div class="puestos-sidebar__header">
+          <span class="puestos-sidebar__title">Puestos</span>
+          <div class="puestos-sidebar__legend">
+            <span><span class="status-dot status-dot--con"></span> Listo</span>
+            <span><span class="status-dot status-dot--sin"></span> Pendiente</span>
+          </div>
+          <div class="puestos-sidebar__search">
+            <input type="text" id="puestos-search" class="puestos-sidebar__input" placeholder="Buscar puesto...">
+          </div>
+        </div>
+        <div class="puestos-sidebar__scroll">
+          <table class="puestos-sidebar__table">
+            <tbody>
+              @forelse ($puestos as $p)
+              <tr class="puestos-sidebar__row {{ $p->tiene_ident ? 'puestos-sidebar__row--with' : 'puestos-sidebar__row--pending' }}" data-puesto-id="{{ $p->id_puesto_trabajo_matriz }}" data-nombre="{{ $p->puesto_trabajo_matriz }}">
+                <td class="puestos-sidebar__name">{{ $p->puesto_trabajo_matriz }}</td>
+                <td class="puestos-sidebar__status">
+                  <span class="status-dot {{ $p->tiene_ident ? 'status-dot--con' : 'status-dot--sin' }}"></span>
+                  {{ $p->tiene_ident ? 'Listo' : 'Pendiente' }}
+                </td>
+              </tr>
+              @empty
+              <tr class="puestos-sidebar__row puestos-sidebar__row--empty">
+                <td colspan="2">No hay puestos disponibles.</td>
+              </tr>
+              @endforelse
+              <tr class="puestos-sidebar__row puestos-sidebar__row--no-results" style="display:none;">
+                <td colspan="2">Sin resultados.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+
 
     <!-- === estilos mínimos extra (si aún no los tienes) === -->
     <style>
@@ -2546,6 +2611,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const fetchBase   = form?.dataset.fetchBase || '';
   const puestoInput = document.getElementById('puesto-input');
   const hiddenId    = document.getElementById('puesto_id');
+  const sidebarRows = Array.from(document.querySelectorAll('.puestos-sidebar__row[data-puesto-id]'));
+  const sidebarSearch = document.getElementById('puestos-search');
+  const noResultsRow = document.querySelector('.puestos-sidebar__row--no-results');
+  const hasSidebarRows = sidebarRows.length > 0;
 
   const deptoInput  = document.querySelector('input[name="departamento"]');
   const numInput    = document.querySelector('input[name="ptm_num_empleados"]');
@@ -2558,6 +2627,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const RIESGOS_CAT  = @json($riesgos ?? []); // {id_riesgo, nombre_riesgo}
 
   /* ===================== Utilidades generales ===================== */
+  const markActiveRow = (id, { scroll = false } = {}) => {
+    const targetId = String(id ?? '').trim();
+    sidebarRows.forEach(row => {
+      if (targetId && String(row.dataset.puestoId) === targetId) {
+        row.classList.add('puestos-sidebar__row--active');
+        if (scroll) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else {
+        row.classList.remove('puestos-sidebar__row--active');
+      }
+    });
+  };
+
+  sidebarRows.forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.dataset.puestoId;
+      const match = (puestosData || []).find(p => String(p.id_puesto_trabajo_matriz) === String(id));
+      if (match && puestoInput) {
+        markActiveRow(id, { scroll: false });
+        puestoInput.value = match.puesto_trabajo_matriz;
+        puestoInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+  });
+
   const q  = sel => form.querySelector(sel);
   const qa = sel => Array.from(form.querySelectorAll(sel));
   const setVal    = (name, val) => { const el = q(`[name="${name}"]`); if (el) el.value = val ?? ''; };
@@ -2576,6 +2671,24 @@ document.addEventListener('DOMContentLoaded', () => {
     .replace(/\p{Diacritic}/gu,'')
     .toLowerCase()
     .trim();
+
+  const filterSidebar = (term = '') => {
+    const needle = normalize(term);
+    let visibles = 0;
+    sidebarRows.forEach(row => {
+      const nombre = normalize(row.dataset.nombre || row.textContent || '');
+      const match = !needle || nombre.includes(needle);
+      row.style.display = match ? '' : 'none';
+      if (match) visibles += 1;
+    });
+    if (noResultsRow) noResultsRow.style.display = (hasSidebarRows && !visibles) ? '' : 'none';
+  };
+
+  sidebarSearch?.addEventListener('input', e => {
+    filterSidebar(e.target.value || '');
+  });
+
+  filterSidebar(sidebarSearch?.value || '');
 
   /* ===================== Autollenado por selección de puesto ===================== */
   const norm = v => (v||'').toString().trim().toLowerCase();
@@ -3123,6 +3236,7 @@ async function hydrateByPuestoId(id){
     if (typeof actualizarDesdeSeleccion === 'function') actualizarDesdeSeleccion();
 
     const id = (hiddenId?.value || '').trim();
+    markActiveRow(id);
     if (id){
       hydrateByPuestoId(id); // trae datos si existen; si no, limpia
     } else {
