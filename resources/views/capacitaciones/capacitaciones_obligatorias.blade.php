@@ -1,7 +1,6 @@
-
 @extends('layouts.capacitacion')
 
-@section('title', 'Capacitaciones obligatorias por puesto (comparación)')
+@section('title', 'Capacitaciones obligatorias por puesto')
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 py-6">
@@ -11,7 +10,7 @@
         <div class="md:col-span-2">
             <label class="block text-sm font-medium text-gray-700 mb-1">Puesto (Matriz)</label>
             <select name="ptm" class="w-full rounded-lg border-gray-300" required>
-                <option value="" hidden>— Selecciona un puesto matriz —</option>
+                <option value="" hidden>&mdash; Selecciona un puesto matriz &mdash;</option>
                 @foreach ($ptms as $p)
                     <option value="{{ $p->id_puesto_trabajo_matriz }}" {{ $ptmId == $p->id_puesto_trabajo_matriz ? 'selected' : '' }}>
                         {{ $p->puesto_trabajo_matriz }}
@@ -21,7 +20,7 @@
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Año</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">A&ntilde;o</label>
             <select name="anio" class="w-full rounded-lg border-gray-300" required>
                 @foreach ($years as $y)
                     <option value="{{ $y }}" {{ $anio == $y ? 'selected' : '' }}>{{ $y }}</option>
@@ -41,75 +40,53 @@
         </div>
     </form>
 
-    {{-- Paso 2: seleccionar empleado equivalente --}}
     @if($ptmId)
-        <div class="mt-6 bg-white rounded-xl shadow">
-            <div class="px-4 py-3 border-b font-medium">
-                Empleados de puestos equivalentes
-            </div>
-
-            @if($empleados->isEmpty())
-                <div class="p-4 text-sm text-gray-600">
-                    No hay <em>comparación de puestos</em> configurada o no hay empleados activos para este puesto matriz.
-                </div>
-            @else
-                <form method="GET" action="{{ route('capacitaciones.capacitaciones.obligatorias') }}" class="p-4">
-                    <input type="hidden" name="ptm" value="{{ $ptmId }}">
-                    <input type="hidden" name="anio" value="{{ $anio }}">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Empleado</label>
-                    <div class="flex gap-3 items-end">
-                        <select name="empleado" class="w-full md:w-1/2 rounded-lg border-gray-300" required>
-                            <option value="" hidden>— Selecciona un empleado —</option>
-                            @foreach ($empleados as $e)
-                                <option value="{{ $e->id_empleado }}" {{ $empleadoId == $e->id_empleado ? 'selected' : '' }}>
-                                    {{ $e->nombre_completo }} @if($e->codigo_empleado) — {{ $e->codigo_empleado }} @endif
-                                </option>
-                            @endforeach
-                        </select>
-                        <button class="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
-                            Ver capacitaciones
-                        </button>
-                    </div>
-                </form>
-            @endif
-        </div>
-    @endif
-
-    {{-- Paso 3: matriz del empleado vs capacitaciones obligatorias --}}
-    @if($ptmId && $empleadoId)
-        <div class="mt-6 space-y-4">
-            @if($capsObligatorias->isEmpty())
-                <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    No hay capacitaciones obligatorias configuradas para este puesto matriz.
-                </div>
-            @else
-                <div class="text-sm text-gray-600">
-                    <strong>{{ $capsObligatorias->count() }}</strong> capacitaciones obligatorias. Año: <strong>{{ $anio }}</strong>.
-                </div>
-
-                <div class="overflow-x-auto bg-white rounded-xl shadow">
+        <div class="mt-6 space-y-6">
+            @if(!empty($estadoPorCap))
+                <div class="bg-white rounded-xl shadow overflow-x-auto">
                     <table class="min-w-full text-sm">
-                        <thead class="bg-gray-100">
+                        <thead class="bg-gray-100 text-gray-700 uppercase text-xs">
                             <tr>
-                                <th class="px-4 py-3 text-left font-semibold">Capacitación</th>
-                                <th class="px-4 py-3 text-left font-semibold">Estado</th>
+                                <th class="px-4 py-3 text-left font-semibold">Capacitaci&oacute;n</th>
+                                <th class="px-4 py-3 text-left font-semibold">Recibieron</th>
+                                <th class="px-4 py-3 text-left font-semibold">Pendientes</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y">
-                            @foreach ($matriz as $row)
+                        <tbody class="divide-y divide-gray-200">
+                            @foreach ($estadoPorCap as $infoCap)
+                                @php
+                                    $recibidasCap = $infoCap['recibidas'] ?? [];
+                                    $pendientesCap = $infoCap['pendientes'] ?? [];
+                                @endphp
                                 <tr>
+                                    <td class="px-4 py-3 text-gray-900 font-medium">{{ $infoCap['cap']->capacitacion ?? 'Capacitaci&oacute;n' }}</td>
                                     <td class="px-4 py-3">
-                                        <div class="font-medium">{{ $row['cap']->capacitacion }}</div>
+                                        @if(empty($recibidasCap))
+                                            <span class="text-xs text-gray-500">Sin registros</span>
+                                        @else
+                                            <div class="flex flex-wrap gap-2">
+                                                @foreach ($recibidasCap as $registro)
+                                                    <span class="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5">
+                                                        {{ $registro['empleado']->nombre_completo }}
+                                                        @if(!empty($registro['fecha']))
+                                                            <span class="text-gray-500 text-[10px]">({{ $registro['fecha'] }})</span>
+                                                        @endif
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     </td>
                                     <td class="px-4 py-3">
-                                        @if($row['estado'] === 'OK')
-                                            <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-green-100 text-green-800">
-                                                Recibida @if($row['fecha']) ({{ $row['fecha'] }}) @endif
-                                            </span>
+                                        @if(empty($pendientesCap))
+                                            <span class="text-xs text-gray-500">Sin pendientes</span>
                                         @else
-                                            <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-red-100 text-red-800">
-                                                Pendiente
-                                            </span>
+                                            <div class="flex flex-wrap gap-2">
+                                                @foreach ($pendientesCap as $registro)
+                                                    <span class="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5">
+                                                        {{ $registro['empleado']->nombre_completo }}
+                                                    </span>
+                                                @endforeach
+                                            </div>
                                         @endif
                                     </td>
                                 </tr>

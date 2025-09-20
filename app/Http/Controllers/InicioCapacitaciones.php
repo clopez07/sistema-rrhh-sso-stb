@@ -20,12 +20,13 @@ public function Capacitaciones()
     $mayoresAsistentes = DB::table('asistencia_capacitacion as ac')
         ->join('empleado as e', 'ac.id_empleado', '=', 'e.id_empleado')
         ->join('puesto_trabajo as pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+        ->leftJoin('puesto_trabajo_matriz as ptm', 'e.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
         ->select(
             'e.nombre_completo',
-            'pt.puesto_trabajo',
+            DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) AS puesto_trabajo'),
             DB::raw("COUNT(*) as total_capacitaciones")
         )
-        ->groupBy('e.id_empleado')
+        ->groupBy('e.id_empleado', 'e.nombre_completo', 'pt.puesto_trabajo', 'ptm.puesto_trabajo_matriz')
         ->orderByDesc('total_capacitaciones')
         ->limit(5)
         ->get();

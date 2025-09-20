@@ -8,6 +8,7 @@ use Carbon\Carbon;
 
 class CapacitacionesObligatoriasConsultaController extends Controller
 {
+
 public function index(Request $request)
 {
     $ptmId      = $request->integer('ptm');
@@ -20,7 +21,6 @@ public function index(Request $request)
                 ->orderBy('puesto_trabajo_matriz')->get();
     $years = range(intval(date('Y')), intval(date('Y')) - 10);
 
-    $puestosEquivalentes = [];
     $empleados           = collect();
     $capsObligatorias    = collect();
     $matriz              = [];
@@ -30,73 +30,109 @@ public function index(Request $request)
     $resumenPorEmpleado  = [];
     $empleadosCount      = 0;
     $autoEmpleado        = false;
+    $ptmNombre           = null;
+    $resumenGeneral      = [
+        'ok'        => 0,
+        'pendiente' => 0,
+        'total'     => 0,
+    ];
+    $estadoPorCap        = [];
 
-    // Autoselección de PTM por comparación si viene un puesto del sistema o un empleado
+    $matchPtmIdByNombre = function (?string $nombre) {
+        if (!is_string($nombre)) {
+            return null;
+        }
+        $needle = mb_strtolower(trim($nombre));
+        if ($needle === '') {
+            return null;
+        }
+
+        return DB::table('puesto_trabajo_matriz')
+            ->where(function ($q) use ($needle) {
+                $q->whereRaw('LOWER(TRIM(puesto_trabajo_matriz)) = ?', [$needle])
+                  ->orWhereRaw('LOWER(puesto_trabajo_matriz) LIKE ?', [$needle . '%'])
+                  ->orWhereRaw('LOWER(puesto_trabajo_matriz) LIKE ?', ['%' . $needle . '%']);
+            })
+            ->orderBy('puesto_trabajo_matriz')
+            ->value('id_puesto_trabajo_matriz');
+    };
+
+    // Autoseleccion de PTM priorizando los datos del empleado/puesto
     $autoPtm = false;
     if (!$ptmId && $puestoId) {
-        $cands = DB::table('comparacion_puestos')
+        $ptmIdFromEmpleado = DB::table('empleado')
             ->where('id_puesto_trabajo', $puestoId)
-            ->distinct()
-            ->pluck('id_puesto_trabajo_matriz');
-        if ($cands->count() === 1) {
-            $ptmId = (int)$cands->first();
-            $autoPtm = true;
-        }
-    }
+            ->whereNotNull('id_puesto_trabajo_matriz')
+            ->value('id_puesto_trabajo_matriz');
 
-    if (!$ptmId && $empleadoId) {
-        $puestoDelEmpleado = DB::table('empleado')->where('id_empleado', $empleadoId)->value('id_puesto_trabajo');
-        if ($puestoDelEmpleado) {
-            $cands = DB::table('comparacion_puestos')
-                ->where('id_puesto_trabajo', $puestoDelEmpleado)
-                ->distinct()
-                ->pluck('id_puesto_trabajo_matriz');
-            if ($cands->count() === 1) {
-                $ptmId = (int)$cands->first();
+        if ($ptmIdFromEmpleado) {
+            $ptmId = (int) $ptmIdFromEmpleado;
+            $autoPtm = true;
+        } else {
+            $puestoNombre = DB::table('puesto_trabajo')
+                ->where('id_puesto_trabajo', $puestoId)
+                ->value('puesto_trabajo');
+            $match = $matchPtmIdByNombre($puestoNombre);
+            if ($match) {
+                $ptmId = (int) $match;
                 $autoPtm = true;
             }
         }
     }
 
-    if ($ptmId) {
-        $puestosEquivalentes = DB::table('comparacion_puestos')
-            ->where('id_puesto_trabajo_matriz', $ptmId)
-            ->pluck('id_puesto_trabajo')
-            ->all();
+    if (!$ptmId && $empleadoId) {
+        $empleadoDatos = DB::table('empleado')
+            ->select('id_puesto_trabajo_matriz', 'id_puesto_trabajo')
+            ->where('id_empleado', $empleadoId)
+            ->first();
 
-        if (empty($puestosEquivalentes)) {
-            $ptmNombre = DB::table('puesto_trabajo_matriz')
-                ->where('id_puesto_trabajo_matriz', $ptmId)
-                ->value('puesto_trabajo_matriz');
-
-            if ($ptmNombre) {
-                $needle = mb_strtolower(trim($ptmNombre));
-
-                $puestosMatch = DB::table('puesto_trabajo')
-                    ->where(function ($q) use ($needle) {
-                        $q->whereRaw('LOWER(TRIM(puesto_trabajo)) = ?', [$needle])
-                          ->orWhereRaw('LOWER(puesto_trabajo) LIKE ?', [$needle . '%'])
-                          ->orWhereRaw('LOWER(puesto_trabajo) LIKE ?', ['%' . $needle . '%']);
-                    })
-                    ->pluck('id_puesto_trabajo')
-                    ->all();
-
-                if (!empty($puestosMatch)) {
-                    $puestosEquivalentes = $puestosMatch;
+        if ($empleadoDatos) {
+            if (!empty($empleadoDatos->id_puesto_trabajo_matriz)) {
+                $ptmId = (int) $empleadoDatos->id_puesto_trabajo_matriz;
+                $autoPtm = true;
+            } elseif (!empty($empleadoDatos->id_puesto_trabajo)) {
+                $puestoNombre = DB::table('puesto_trabajo')
+                    ->where('id_puesto_trabajo', $empleadoDatos->id_puesto_trabajo)
+                    ->value('puesto_trabajo');
+                $match = $matchPtmIdByNombre($puestoNombre);
+                if ($match) {
+                    $ptmId = (int) $match;
+                    $autoPtm = true;
                 }
             }
         }
+    }
 
-        if (!empty($puestosEquivalentes)) {
-            $empleados = DB::table('empleado')
-                ->select('id_empleado','nombre_completo','codigo_empleado','identidad','id_puesto_trabajo')
-                ->whereIn('id_puesto_trabajo', $puestosEquivalentes)
-                ->where(function ($q) {
-                    $q->where('estado', 1)->orWhereNull('estado');
-                })
-                ->orderBy('nombre_completo')
-                ->get();
-        }
+    if ($ptmId) {
+        $ptmNombre = DB::table('puesto_trabajo_matriz')
+            ->where('id_puesto_trabajo_matriz', $ptmId)
+            ->value('puesto_trabajo_matriz');
+
+        $empleados = DB::table('empleado as e')
+            ->leftJoin('puesto_trabajo as pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->select('e.id_empleado','e.nombre_completo','e.codigo_empleado','e.identidad','e.id_puesto_trabajo','e.id_puesto_trabajo_matriz')
+            ->where(function ($q) use ($ptmId, $ptmNombre) {
+                $q->where('e.id_puesto_trabajo_matriz', $ptmId);
+
+                if ($ptmNombre) {
+                    $needle = mb_strtolower(trim($ptmNombre));
+                    if ($needle !== '') {
+                        $q->orWhere(function ($inner) use ($needle) {
+                            $inner->whereNull('e.id_puesto_trabajo_matriz')
+                                  ->where(function ($byName) use ($needle) {
+                                      $byName->whereRaw('LOWER(TRIM(pt.puesto_trabajo)) = ?', [$needle])
+                                             ->orWhereRaw('LOWER(pt.puesto_trabajo) LIKE ?', [$needle . '%'])
+                                             ->orWhereRaw('LOWER(pt.puesto_trabajo) LIKE ?', ['%' . $needle . '%']);
+                                  });
+                        });
+                    }
+                }
+            })
+            ->where(function ($q) {
+                $q->where('e.estado', 1)->orWhereNull('e.estado');
+            })
+            ->orderBy('e.nombre_completo')
+            ->get();
 
         $empleadosCount = $empleados->count();
         if ($empleadosCount === 1 && !$empleadoId) {
@@ -111,24 +147,31 @@ public function index(Request $request)
             ->orderBy('c.capacitacion')
             ->get(['c.id_capacitacion','c.capacitacion']);
 
+        foreach ($capsObligatorias as $cap) {
+            $cid = (int) $cap->id_capacitacion;
+            if (!isset($estadoPorCap[$cid])) {
+                $estadoPorCap[$cid] = [
+                    'cap'        => $cap,
+                    'recibidas' => [],
+                    'pendientes'=> [],
+                ];
+            }
+        }
+
         if ($empleadoId && $capsObligatorias->count()) {
-            // Traemos todas las asistencias en crudo y parseamos fechas varchar en PHP
             $rows = DB::table('asistencia_capacitacion as ac')
                 ->join('capacitacion_instructor as ci', 'ci.id_capacitacion_instructor', '=', 'ac.id_capacitacion_instructor')
                 ->where('ac.id_empleado', $empleadoId)
                 ->get(['ci.id_capacitacion','ac.fecha_recibida']);
 
-            // Por cada capacitación tomamos la fecha más reciente que caiga en el año solicitado
             $recibidas = [];
             foreach ($rows as $r) {
                 [$ini, $fin] = $this->parseFechaVarcharToDates($r->fecha_recibida);
-                // Regla: usar fin si existe; de lo contrario, inicio
                 $candidata = $fin ?: $ini;
                 if (!$candidata) { continue; }
 
                 $yCand = (int)substr($candidata, 0, 4);
                 if ($yCand !== (int)$anio) {
-                    // Si fin no es del año, probar con inicio
                     if ($ini && (int)substr($ini, 0, 4) === (int)$anio) {
                         $candidata = $ini;
                     } else {
@@ -138,7 +181,7 @@ public function index(Request $request)
 
                 $idc = $r->id_capacitacion;
                 if (!isset($recibidas[$idc]) || $candidata > $recibidas[$idc]) {
-                    $recibidas[$idc] = $candidata; // formato 'Y-m-d'
+                    $recibidas[$idc] = $candidata;
                 }
             }
 
@@ -161,16 +204,13 @@ public function index(Request $request)
             }
         }
 
-        // Bloque: calcular matriz para TODOS los empleados si hay varios
         if ($capsObligatorias->count() && $empleadosCount > 0) {
             $idsEmp = $empleados->pluck('id_empleado')->all();
-            // Traer todas las asistencias de todos los empleados del grupo
             $rowsAll = DB::table('asistencia_capacitacion as ac')
                 ->join('capacitacion_instructor as ci', 'ci.id_capacitacion_instructor', '=', 'ac.id_capacitacion_instructor')
                 ->whereIn('ac.id_empleado', $idsEmp)
                 ->get(['ac.id_empleado','ci.id_capacitacion','ac.fecha_recibida']);
 
-            // Mapear por empleado y capacitación su última fecha válida del año
             $recibidasPorEmp = [];
             foreach ($rowsAll as $r) {
                 [$ini, $fin] = $this->parseFechaVarcharToDates($r->fecha_recibida);
@@ -188,13 +228,14 @@ public function index(Request $request)
 
                 $eid = (int)$r->id_empleado;
                 $cid = (int)$r->id_capacitacion;
-                if (!isset($recibidasPorEmp[$eid])) $recibidasPorEmp[$eid] = [];
+                if (!isset($recibidasPorEmp[$eid])) {
+                    $recibidasPorEmp[$eid] = [];
+                }
                 if (!isset($recibidasPorEmp[$eid][$cid]) || $candidata > $recibidasPorEmp[$eid][$cid]) {
                     $recibidasPorEmp[$eid][$cid] = $candidata;
                 }
             }
 
-            // Armar matriz y resumen por empleado
             foreach ($empleados as $emp) {
                 $eid = (int)$emp->id_empleado;
                 $filas = [];
@@ -208,7 +249,27 @@ public function index(Request $request)
                         'estado' => $estado,
                         'fecha'  => $fecha,
                     ];
-                    if ($fecha) $ok++; else $pend++;
+
+                    $cid = (int) $cap->id_capacitacion;
+                    if (!isset($estadoPorCap[$cid])) {
+                        $estadoPorCap[$cid] = [
+                            'cap'        => $cap,
+                            'recibidas' => [],
+                            'pendientes'=> [],
+                        ];
+                    }
+                    $registroEmpleado = [
+                        'empleado' => $emp,
+                        'fecha'    => $fecha,
+                    ];
+
+                    if ($fecha) {
+                        $ok++;
+                        $estadoPorCap[$cid]['recibidas'][] = $registroEmpleado;
+                    } else {
+                        $pend++;
+                        $estadoPorCap[$cid]['pendientes'][] = $registroEmpleado;
+                    }
                 }
                 $matrizPorEmpleado[$eid] = [
                     'empleado' => $emp,
@@ -219,6 +280,9 @@ public function index(Request $request)
                     'pendiente' => $pend,
                     'total'     => $ok + $pend,
                 ];
+                $resumenGeneral['ok'] += $ok;
+                $resumenGeneral['pendiente'] += $pend;
+                $resumenGeneral['total'] += ($ok + $pend);
             }
         }
     }
@@ -237,15 +301,17 @@ public function index(Request $request)
         'matriz'           => $matriz,
         'matrizPorEmpleado'=> $matrizPorEmpleado,
         'resumenPorEmpleado'=> $resumenPorEmpleado,
+        'resumenGeneral'   => $resumenGeneral,
+        'estadoPorCap'     => $estadoPorCap,
+        'ptmNombre'        => $ptmNombre,
         'recibidasLista'   => $recibidasLista,
         'pendientesLista'  => $pendientesLista,
         'debugCounts'      => [
-            'equivalentes' => is_array($puestosEquivalentes) ? count($puestosEquivalentes) : 0,
+            'empleados'    => $empleadosCount,
             'obligatorias' => $capsObligatorias->count(),
         ],
     ]);
 }
-
     /**
      * Parsea un varchar de fecha y retorna [inicio, fin] en formato 'Y-m-d'.
      * Acepta:
@@ -285,3 +351,4 @@ public function index(Request $request)
         return [$start, $end];
     }
 }
+

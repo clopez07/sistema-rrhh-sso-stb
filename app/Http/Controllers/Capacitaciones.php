@@ -139,6 +139,7 @@ class Capacitaciones extends Controller
         $asistencia = DB::table('asistencia_capacitacion AS ac')
             ->join('empleado AS e', 'ac.id_empleado', '=', 'e.id_empleado')
             ->join('puesto_trabajo AS pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->leftJoin('puesto_trabajo_matriz as ptm', 'e.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
             ->join('capacitacion_instructor AS ci', 'ac.id_capacitacion_instructor', '=', 'ci.id_capacitacion_instructor')
             ->join('capacitacion AS c', 'ci.id_capacitacion', '=', 'c.id_capacitacion')
             ->join('instructor AS i', 'ci.id_instructor', '=', 'i.id_instructor')
@@ -147,20 +148,24 @@ class Capacitaciones extends Controller
                 'e.id_empleado',
                 'e.nombre_completo',
                 'e.codigo_empleado',
-                'pt.puesto_trabajo',
+                DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) AS puesto_trabajo'),
                 'pt.departamento',
                 'c.capacitacion',
                 DB::raw('COALESCE(ac.instructor_temporal, i.instructor) AS instructor'),
                 'ac.fecha_recibida'
             )
             ->when($request->search, function ($query, $search) {
-                return $query->where('e.nombre_completo', 'LIKE', "%{$search}%")
-                    ->orWhere('e.codigo_empleado', 'LIKE', "%{$search}%")
-                    ->orWhere('pt.puesto_trabajo', 'LIKE', "%{$search}%")
-                    ->orWhere('pt.departamento', 'LIKE', "%{$search}%")
-                    ->orWhere('c.capacitacion', 'LIKE', "%{$search}%")
-                    ->orWhere('i.instructor', 'LIKE', "%{$search}%")
-                    ->orWhere('ac.instructor_temporal', 'LIKE', "%{$search}%");
+                $term = "%{$search}%";
+                return $query->where(function ($inner) use ($term) {
+                    $inner->where('e.nombre_completo', 'LIKE', $term)
+                        ->orWhere('e.codigo_empleado', 'LIKE', $term)
+                        ->orWhere('pt.puesto_trabajo', 'LIKE', $term)
+                        ->orWhere('ptm.puesto_trabajo_matriz', 'LIKE', $term)
+                        ->orWhere('pt.departamento', 'LIKE', $term)
+                        ->orWhere('c.capacitacion', 'LIKE', $term)
+                        ->orWhere('i.instructor', 'LIKE', $term)
+                        ->orWhere('ac.instructor_temporal', 'LIKE', $term);
+                });
             })
             ->orderBy('ac.id_asistencia_capacitacion', 'desc')
             ->paginate(10)
@@ -247,12 +252,13 @@ class Capacitaciones extends Controller
         $query = DB::table('asistencia_capacitacion as asica')
             ->join('empleado as emp', 'asica.id_empleado', '=', 'emp.id_empleado')
             ->join('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->leftJoin('puesto_trabajo_matriz as ptm', 'emp.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
             ->join('capacitacion_instructor as cap', 'asica.id_capacitacion_instructor', '=', 'cap.id_capacitacion_instructor')
             ->join('capacitacion as capa', 'cap.id_capacitacion', '=', 'capa.id_capacitacion')
             ->join('instructor as i', 'cap.id_instructor', '=', 'i.id_instructor')
             ->select(
                 'emp.nombre_completo',
-                'pt.puesto_trabajo',
+                DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) AS puesto_trabajo'),
                 'pt.departamento',
                 'capa.capacitacion',
                 'i.instructor',
@@ -260,7 +266,12 @@ class Capacitaciones extends Controller
             );
 
         if ($nombre) { $query->where('emp.nombre_completo', $nombre); }
-        if ($puesto) { $query->where('pt.puesto_trabajo', $puesto); }
+        if ($puesto) {
+            $query->where(function ($q) use ($puesto) {
+                $q->where('ptm.puesto_trabajo_matriz', $puesto)
+                    ->orWhere('pt.puesto_trabajo', $puesto);
+            });
+        }
         if ($fecha) { $query->where('asica.fecha_recibida', $fecha); }
         if ($capacitacion) { $query->where('capa.capacitacion', $capacitacion); }
 
@@ -274,6 +285,10 @@ class Capacitaciones extends Controller
         $puesto = DB::table('puesto_trabajo')
             ->where('estado', 1)
             ->pluck('puesto_trabajo');
+        $puestosMatriz = DB::table('puesto_trabajo_matriz')
+            ->where('estado', 1)
+            ->pluck('puesto_trabajo_matriz');
+        $puesto = $puesto->merge($puestosMatriz)->unique()->sort()->values();
         $fecha = DB::table('asistencia_capacitacion')->distinct()->pluck('fecha_recibida');
         $capacitacion = DB::table('capacitacion')->pluck('capacitacion');
 
@@ -290,16 +305,24 @@ class Capacitaciones extends Controller
     $query = DB::table('asistencia_capacitacion as asica')
         ->join('empleado as emp', 'asica.id_empleado', '=', 'emp.id_empleado')
         ->join('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+        ->leftJoin('puesto_trabajo_matriz as ptm', 'emp.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
         ->join('capacitacion_instructor as cap', 'asica.id_capacitacion_instructor', '=', 'cap.id_capacitacion_instructor')
         ->join('capacitacion as capa', 'cap.id_capacitacion', '=', 'capa.id_capacitacion')
         ->join('instructor as i', 'cap.id_instructor', '=', 'i.id_instructor')
         ->select(
-            'emp.nombre_completo','pt.puesto_trabajo','pt.departamento',
+            'emp.nombre_completo',
+            DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) AS puesto_trabajo'),
+            'pt.departamento',
             'capa.capacitacion','i.instructor','asica.fecha_recibida'
         );
 
     if ($nombre)       $query->where('emp.nombre_completo', $nombre);
-    if ($puesto)       $query->where('pt.puesto_trabajo',   $puesto);
+    if ($puesto) {
+        $query->where(function ($q) use ($puesto) {
+            $q->where('ptm.puesto_trabajo_matriz', $puesto)
+                ->orWhere('pt.puesto_trabajo', $puesto);
+        });
+    }
     if ($fecha)        $query->where('asica.fecha_recibida',$fecha);
     if ($capacitacion) $query->where('capa.capacitacion',   $capacitacion);
 
