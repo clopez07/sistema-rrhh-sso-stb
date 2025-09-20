@@ -196,6 +196,15 @@
                             </select>
                         </div>
                         <div class="col-span-2">
+                            <label for="id_puesto_trabajo_matriz" class="block mb-2 text-sm font-medium text-gray-900">Puesto (Matriz)</label>
+                            <select name="id_puesto_trabajo_matriz" id="id_puesto_trabajo_matriz" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5" required>
+                                <option value="" disabled selected>Seleccione el puesto matriz</option>
+                                @foreach($puestosMatriz as $puestoMatriz)
+                                    <option value="{{ $puestoMatriz->id_puesto_trabajo_matriz }}">{{ $puestoMatriz->puesto_trabajo_matriz }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-span-2">
                             <label for="estado" class="block mb-2 text-sm font-medium text-gray-900">Estado</label>
                             <select name="estado" id="estado" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5">
                                 <option value="1" selected>Activo</option>
@@ -228,23 +237,29 @@
     </button>
     </div>
 
-    <form action="{{ route('empleados') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
-        <div class="relative w-full">
+    <form action="{{ route('empleados') }}" method="GET" class="flex flex-wrap gap-3 items-center w-full max-w-xl bg-white">
+        <div class="relative flex-1 min-w-[220px]">
             <input
                 type="text"
                 name="search"
                 value="{{ request('search') }}"
                 placeholder="Buscar..."
                 oninput="this.form.submit()" {{-- aquí está la magia --}}
-                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
                 </svg>
             </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <label for="estado_filter" class="text-sm text-gray-700">Estado</label>
+            <select name="estado_filter" id="estado_filter" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" onchange="this.form.submit()">
+                <option value="todos" @selected(($estadoFilter ?? 'todos') === 'todos')>Todos</option>
+                <option value="activos" @selected(($estadoFilter ?? 'todos') === 'activos')>Activos</option>
+                <option value="inactivos" @selected(($estadoFilter ?? 'todos') === 'inactivos')>Inactivos</option>
+            </select>
         </div>
     </form>
 </div>
@@ -264,6 +279,9 @@
                     </th>
                     <th scope="col" class="px-6 py-3">
                         Puesto de Trabajo
+                    </th>
+                    <th scope="col" class="px-6 py-3">
+                        Puesto Matriz
                     </th>
                     <th scope="col" class="px-6 py-3">
                         Departamento
@@ -290,6 +308,9 @@
                     </td>
                     <td class="px-6 py-4">
                         {{ $empleado->puesto_trabajo }}
+                    </td>
+                    <td class="px-6 py-4">
+                        {{ $empleado->puesto_trabajo_matriz ?? 'Sin asignar' }}
                     </td>
                     <td class="px-6 py-4">
                         {{ $empleado->departamento }}
@@ -334,6 +355,17 @@
                                                     @foreach($puestos as $puesto)
                                                         <option value="{{ $puesto->id_puesto_trabajo }}" @if($empleado->id_puesto_trabajo == $puesto->id_puesto_trabajo) selected @endif>
                                                             {{ $puesto->puesto_trabajo }}
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block mb-2 text-sm font-medium text-gray-900">Puesto (Matriz)</label>
+                                                <select name="id_puesto_trabajo_matriz" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5" required>
+                                                    <option value="" disabled @selected(is_null($empleado->id_puesto_trabajo_matriz))>Seleccione el puesto matriz</option>
+                                                    @foreach($puestosMatriz as $puestoMatriz)
+                                                        <option value="{{ $puestoMatriz->id_puesto_trabajo_matriz }}" @if($empleado->id_puesto_trabajo_matriz == $puestoMatriz->id_puesto_trabajo_matriz) selected @endif>
+                                                            {{ $puestoMatriz->puesto_trabajo_matriz }}
                                                         </option>
                                                     @endforeach
                                                 </select>

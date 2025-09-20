@@ -12,28 +12,53 @@ class Generales extends Controller
     {
     $empleados = DB::table('empleado as e')
         ->join('puesto_trabajo as p', 'e.id_puesto_trabajo', '=', 'p.id_puesto_trabajo')
+        ->leftJoin('puesto_trabajo_matriz as ptm', 'e.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
         ->select(
             'e.id_empleado',
             'e.nombre_completo',
             'e.codigo_empleado',
             'e.identidad',
             'e.id_puesto_trabajo',
+            'e.id_puesto_trabajo_matriz',
             'p.puesto_trabajo',
             'p.departamento',
+            'ptm.puesto_trabajo_matriz',
             DB::raw("CASE WHEN e.estado = 1 THEN 'Activo' ELSE 'Inactivo' END as estado")
         )
         ->when($request->search, function ($query, $search) {
-            return $query->where('e.nombre_completo', 'like', "%{$search}%")
-                         ->orWhere('e.codigo_empleado', 'like', "%{$search}%")
-                         ->orWhere('p.puesto_trabajo', 'like', "%{$search}%");
+            $term = "%{$search}%";
+            return $query->where(function ($innerQuery) use ($term) {
+                $innerQuery->where('e.nombre_completo', 'like', $term)
+                    ->orWhere('e.codigo_empleado', 'like', $term)
+                    ->orWhere('p.puesto_trabajo', 'like', $term)
+                    ->orWhere('ptm.puesto_trabajo_matriz', 'like', $term);
+            });
+        })
+        ->when($request->filled('estado_filter') && $request->estado_filter !== 'todos', function ($query) use ($request) {
+            if ($request->estado_filter === 'activos') {
+                return $query->where(function ($inner) {
+                    $inner->where('e.estado', 1);
+                });
+            }
+
+            return $query->where(function ($inner) {
+                $inner->where('e.estado', 0);
+            });
         })
         ->orderBy('e.nombre_completo', 'asc')
         ->paginate(10)
-        ->appends(['search' => $request->search]);
+        ->appends($request->only(['search', 'estado_filter']));
 
     $puestos = DB::select('CALL sp_obtener_puestos_trabajo_sistema()');
 
-    return view('generales.empleados', compact('empleados', 'puestos'));
+    $puestosMatriz = DB::table('puesto_trabajo_matriz')
+        ->select('id_puesto_trabajo_matriz', 'puesto_trabajo_matriz')
+        ->orderBy('puesto_trabajo_matriz')
+        ->get();
+
+    $estadoFilter = $request->input('estado_filter', 'todos');
+
+    return view('generales.empleados', compact('empleados', 'puestos', 'puestosMatriz', 'estadoFilter'));
     }
 
     public function store(Request $request)
@@ -43,7 +68,8 @@ class Generales extends Controller
             'identidad' => $request->input('identidad'),
             'codigo_empleado' => $request->input('codigo_empleado'),
             'id_puesto_trabajo' => $request->input('id_puesto_trabajo'),
-            'estado' => 1,
+            'id_puesto_trabajo_matriz' => $request->input('id_puesto_trabajo_matriz'),
+            'estado' => (int) $request->input('estado', 1),
         ]);
 
         return redirect()->back()->with('success', 'Empleado agregado correctamente');
@@ -56,6 +82,7 @@ class Generales extends Controller
             'identidad'         => $request->input('identidad'),
             'codigo_empleado'   => $request->input('codigo_empleado'),
             'id_puesto_trabajo' => $request->input('id_puesto_trabajo'),
+            'id_puesto_trabajo_matriz' => $request->input('id_puesto_trabajo_matriz'),
         ];
         if ($request->has('estado')) {
             $data['estado'] = (int)$request->input('estado');
