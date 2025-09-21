@@ -213,16 +213,36 @@
                                                 <input type="text" value="{{ $cuota->nombre_completo }}" class="w-full bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-lg p-2.5" disabled>
                                             </div>
                                             <div class="col-span-2">
-                                                <label class="block mb-2 text-sm font-medium text-gray-900">No. Préstamo</label>
+                                                <label class="block mb-2 text-sm font-medium text-gray-900">No. Prestamo</label>
                                                 <input type="text" value="{{ $cuota->num_prestamo }}" class="w-full bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-lg p-2.5" disabled>
                                             </div>
-                                            <div class="col-span-2">
-                                                <label class="block mb-2 text-sm font-medium text-gray-900">Observación</label>
-                                                <input type="text" value="{{ $cuota->observaciones }}" class="w-full bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-lg p-2.5" disabled>
+                                            <div>
+                                                <label for="num_cuota_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">No. Cuota</label>
+                                                <input type="number" id="num_cuota_{{ $cuota->id_historial_cuotas }}" name="num_cuota" value="{{ old('num_cuota', $cuota->num_cuota) }}" min="0" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                            </div>
+                                            <div>
+                                                <label for="fecha_programada_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Fecha programada</label>
+                                                <input type="date" id="fecha_programada_{{ $cuota->id_historial_cuotas }}" name="fecha_programada" value="{{ old('fecha_programada', $cuota->fecha_programada ? \Illuminate\Support\Carbon::parse($cuota->fecha_programada)->format('Y-m-d') : '') }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                            </div>
+                                            <div>
+                                                <label for="abono_capital_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Abono a capital</label>
+                                                <input type="number" step="0.01" min="0" id="abono_capital_{{ $cuota->id_historial_cuotas }}" name="abono_capital" value="{{ old('abono_capital', $cuota->abono_capital) }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                            </div>
+                                            <div>
+                                                <label for="abono_intereses_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Abono a intereses</label>
+                                                <input type="number" step="0.01" min="0" id="abono_intereses_{{ $cuota->id_historial_cuotas }}" name="abono_intereses" value="{{ old('abono_intereses', $cuota->abono_intereses) }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                            </div>
+                                            <div>
+                                                <label for="cuota_mensual_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Cuota mensual</label>
+                                                <input type="number" step="0.01" min="0" id="cuota_mensual_{{ $cuota->id_historial_cuotas }}" name="cuota_mensual" value="{{ old('cuota_mensual', $cuota->cuota_mensual) }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                            </div>
+                                            <div>
+                                                <label for="cuota_quincenal_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Cuota quincenal</label>
+                                                <input type="number" step="0.01" min="0" id="cuota_quincenal_{{ $cuota->id_historial_cuotas }}" name="cuota_quincenal" value="{{ old('cuota_quincenal', $cuota->cuota_quincenal) }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
                                             </div>
                                             <div class="col-span-2">
-                                                <label for="fecha_programada_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Fecha programada</label>
-                                                <input type="date" id="fecha_programada_{{ $cuota->id_historial_cuotas }}" name="fecha_programada" value="{{ \Illuminate\Support\Carbon::parse($cuota->fecha_programada)->format('Y-m-d') }}" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5" required>
+                                                <label for="observaciones_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Observaciones</label>
+                                                <textarea id="observaciones_{{ $cuota->id_historial_cuotas }}" name="observaciones" rows="3" class="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5">{{ old('observaciones', $cuota->observaciones) }}</textarea>
                                             </div>
                                             <div class="col-span-2">
                                                 <label for="estado_{{ $cuota->id_historial_cuotas }}" class="block mb-2 text-sm font-medium text-gray-900">Estado</label>

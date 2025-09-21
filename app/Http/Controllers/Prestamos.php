@@ -647,20 +647,31 @@ public function empleadosprestamo(Request $request)
     public function updateCuota(Request $request, $id)
     {
         $request->validate([
+            'num_cuota' => 'required|integer|min:0',
             'fecha_programada' => 'required|date',
+            'abono_capital' => 'required|numeric|min:0',
+            'abono_intereses' => 'required|numeric|min:0',
+            'cuota_mensual' => 'required|numeric|min:0',
+            'cuota_quincenal' => 'required|numeric|min:0',
+            'observaciones' => 'nullable|string',
             'estado' => 'required|in:0,1',
+        ]);
+
+        DB::table('historial_cuotas')
+            ->where('id_historial_cuotas', (int) $id)
+            ->update([
+                'num_cuota' => (int) $request->input('num_cuota'),
+                'fecha_programada' => $request->input('fecha_programada'),
+                'abono_capital' => $request->input('abono_capital'),
+                'abono_intereses' => $request->input('abono_intereses'),
+                'cuota_mensual' => $request->input('cuota_mensual'),
+                'cuota_quincenal' => $request->input('cuota_quincenal'),
+                'observaciones' => $request->input('observaciones'),
+                'pagado' => (int) $request->input('estado'),
             ]);
 
-            DB::table('historial_cuotas')
-                ->where('id_historial_cuotas', (int)$id)
-                ->update([
-                    'fecha_programada' => $request->input('fecha_programada'),
-                    'pagado' => (int)$request->input('estado'),
-                ]);
-
-            return redirect()->back()->with('success', 'Cuota actualizada correctamente');
+        return redirect()->back()->with('success', 'Cuota actualizada correctamente');
     }
-
     public function prestamo(Request $request)
     {
         $prestamo = DB::table('prestamo as p')
@@ -733,3 +744,4 @@ public function empleadosprestamo(Request $request)
     }
 
 }
+
