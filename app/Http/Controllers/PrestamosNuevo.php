@@ -136,6 +136,24 @@ class PrestamosNuevo extends Controller
         }
         // ==========================================================
 
+        // ===== CONFIG SOLO INTERES (capital mensual = 0) =====
+        $soloInteresConfig = null;
+        $soloInteresModo   = strtolower((string) $request->input('solo_interes_modo', ''));
+        $soloInteresMonto  = $this->parseMoney($request->input('solo_interes_monto') ?? 0);
+
+        if ($cuotaCap <= 0 && $totalInt > 0 && in_array($soloInteresModo, ['total', 'parcial'], true)) {
+            $montoPlanificado = $soloInteresModo === 'parcial'
+                ? min($totalInt, max(0.0, $soloInteresMonto))
+                : $totalInt;
+
+            if ($montoPlanificado > 0) {
+                $soloInteresConfig = [
+                    'modo'              => $soloInteresModo,
+                    'monto_planificado' => $montoPlanificado,
+                ];
+            }
+        }
+
         // ===== TOTAL Y CAUSA DE EXTRAS =====
         $extraTotal = array_sum(array_map(fn($e) => (float)$e['monto'], $extrasDetallados));
         $extraCausa = array_map(fn($e) => $e['label'], $extrasDetallados);
@@ -191,6 +209,7 @@ class PrestamosNuevo extends Controller
                 $fPrimera,
                 $frecuencia,
                 $depositosCfg,
+                $soloInteresConfig,
                 $extrasDetallados
             );
 
@@ -220,6 +239,7 @@ class PrestamosNuevo extends Controller
         ?string $fechaPrimera,
         string $frecuencia,
         ?array $depositosCfg = null,     // ['modo'=>'unico|varios','total','cuota','plazo (float)','fecha_inicio']
+        ?array $soloInteresConfig = null,  // ['modo'=>'total|parcial','monto_planificado']
         array $extrasDetallados = []     // ['label','monto','fecha'?]
     ): void {
         // === 1) Fechas/base ===
@@ -235,8 +255,11 @@ class PrestamosNuevo extends Controller
             default     => 2.0,
         };
 
-        $interesMensual = $plazoMeses > 0 ? ($totalIntereses / $plazoMeses) : 0.0;
-        $baseCapPeriodo = $factorPeriodo > 0 ? ($cuotaCapitalMensual / $factorPeriodo) : $cuotaCapitalMensual;
+        $planInteresObjetivo = $soloInteresConfig['monto_planificado'] ?? $totalIntereses;
+        $plazoNormalizado    = $plazoMeses > 0 ? $plazoMeses : 1.0;
+        $interesMensualPlan  = $planInteresObjetivo / $plazoNormalizado;
+        $baseCapPeriodo      = $factorPeriodo > 0 ? ($cuotaCapitalMensual / $factorPeriodo) : $cuotaCapitalMensual;
+        $cuotaMensualReferencia = $cuotaCapitalMensual + $interesMensualPlan;
 
         // === 2) Depósitos (eventos) y total para restar del capital planilla ===
         $depTotal   = 0.0;
@@ -290,15 +313,30 @@ class PrestamosNuevo extends Controller
 
         // === 4) Capital que irá a planilla ===
         $capPlanillaBase = max(0.0, $monto - $depTotal - $sumaExtras);
+        if ($soloInteresConfig) {
+            $capPlanillaBase = 0.0;
+        }
 
         // === 5) Número de cuotas de planilla ===
         $maxCuotasPlanilla = max(0, (int)ceil($plazoMeses * $factorPeriodo));
-        $nPlan = ($baseCapPeriodo > 0.0 && $capPlanillaBase > 0.0)
-               ? (int)ceil($capPlanillaBase / $baseCapPeriodo)
-               : 0;
-        if ($maxCuotasPlanilla > 0) $nPlan = min($nPlan, $maxCuotasPlanilla);
+        if ($soloInteresConfig && $maxCuotasPlanilla === 0 && $planInteresObjetivo > 0) {
+            $maxCuotasPlanilla = 1;
+        }
 
-        $totalInteresesPlan = ($nPlan > 0) ? $totalIntereses : 0.0;
+        if ($soloInteresConfig) {
+            $nPlan = $maxCuotasPlanilla;
+        } else {
+            $nPlan = ($baseCapPeriodo > 0.0 && $capPlanillaBase > 0.0)
+                   ? (int)ceil($capPlanillaBase / $baseCapPeriodo)
+                   : 0;
+            if ($maxCuotasPlanilla > 0) {
+                $nPlan = min($nPlan, $maxCuotasPlanilla);
+            }
+        }
+
+        $totalInteresesPlan = $soloInteresConfig
+            ? $planInteresObjetivo
+            : (($nPlan > 0) ? $totalIntereses : 0.0);
 
         // === 6) Fechas de planilla ===
         $fechasPlanilla = [];
@@ -401,7 +439,7 @@ class PrestamosNuevo extends Controller
                 'fecha_programada' => $fecha,
                 'abono_capital'    => $abCap,
                 'abono_intereses'  => $abInt,
-                'cuota_mensual'    => $cuotaCapitalMensual + $interesMensual, // referencial
+                'cuota_mensual'    => $cuotaMensualReferencia, // referencial
                 'cuota_quincenal'  => $cuotaPeriodo,
                 'saldo_pagado'     => $saldoCapPag,
                 'saldo_restante'   => $saldoCapRestTotal,

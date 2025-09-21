@@ -229,6 +229,27 @@
                     focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5"/>
     </div>
 
+    <div id="solo-interes-box-main" class="col-span-1 md:col-span-2 hidden bg-blue-50 border border-blue-200 rounded-lg p-3">
+      <span class="block text-sm font-semibold text-blue-900 mb-2">Plan de pago solo intereses</span>
+      <div class="flex flex-wrap items-center gap-4 text-sm text-blue-900">
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="solo_interes_opcion_main" value="total" class="text-blue-600 focus:ring-blue-500" checked>
+          Pagar en cuotas intereses totales
+        </label>
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="solo_interes_opcion_main" value="parcial" class="text-blue-600 focus:ring-blue-500">
+          Pagar en cuotas intereses parciales
+        </label>
+      </div>
+      <div id="solo-interes-parcial-main" class="mt-3 hidden">
+        <label class="block text-sm font-medium text-gray-900">Monto parcial a distribuir</label>
+        <input type="number" step="0.01" min="0" id="solo_interes_parcial_monto_main" class="mt-1 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" placeholder="Ej. 1500.00">
+      </div>
+      <p id="solo-interes-resumen-main" class="mt-3 text-xs text-blue-800">Ingresá el plazo y el total de intereses para mostrar el cálculo.</p>
+    </div>
+    <input type="hidden" name="solo_interes_modo" id="solo_interes_modo_main">
+    <input type="hidden" name="solo_interes_monto" id="solo_interes_monto_main">
+
     <!-- Plazo del préstamo -->
     <div class="col-span-1">
     <label class="block mb-2 text-sm font-medium text-gray-900">Plazo del Préstamo</label>
@@ -658,6 +679,27 @@ document.addEventListener('DOMContentLoaded', function () {
                             <label for="cuota_capital" class="block mb-2 text-sm font-medium text-gray-900">Cuota Mensual</label>
                             <input type="text" name="cuota_capital" id="cuota_capital" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5" required="">
                         </div>
+                        <div id="solo-interes-box-modal" class="col-span-2 hidden bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <span class="block text-sm font-semibold text-blue-900 mb-2">Plan de pago solo intereses</span>
+                            <div class="flex flex-wrap items-center gap-4 text-sm text-blue-900">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="solo_interes_opcion_modal" value="total" class="text-blue-600 focus:ring-blue-500" checked>
+                                    Pagar en cuotas intereses totales
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="solo_interes_opcion_modal" value="parcial" class="text-blue-600 focus:ring-blue-500">
+                                    Pagar en cuotas intereses parciales
+                                </label>
+                            </div>
+                            <div id="solo-interes-parcial-modal" class="mt-3 hidden">
+                                <label class="block text-sm font-medium text-gray-900">Monto parcial a distribuir</label>
+                                <input type="number" step="0.01" min="0" id="solo_interes_parcial_monto_modal" class="mt-1 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" placeholder="Ej. 1500.00">
+                            </div>
+                            <p id="solo-interes-resumen-modal" class="mt-3 text-xs text-blue-800">Ingresá el plazo y el total de intereses para mostrar el cálculo.</p>
+                        </div>
+                        <input type="hidden" name="solo_interes_modo" id="solo_interes_modo_modal">
+                        <input type="hidden" name="solo_interes_monto" id="solo_interes_monto_modal">
+
                         <div class="col-span-2">
                             <label for="porcentaje_interes" class="block mb-2 text-sm font-medium text-gray-900">Porcentaje de Interés</label>
                             <input type="text" name="porcentaje_interes" id="porcentaje_interes" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5" required="">
@@ -894,6 +936,135 @@ function confirmarEliminarPrestamo() {
   }
   document.getElementById('formEliminarPrestamo').submit();
 }
+  function setupSoloInteresFeature(config) {
+    const box = document.getElementById(config.boxId);
+    if (!box) { return; }
+    const form = box.closest('form');
+    if (!form) { return; }
+
+    const capitalInput = form.querySelector(config.capitalSelector);
+    const totalInput = form.querySelector(config.totalSelector);
+    const plazoInput = form.querySelector(config.plazoSelector);
+    const radios = box.querySelectorAll('input[name="' + config.radioName + '"]');
+    const parcialWrap = document.getElementById(config.parcialWrapId);
+    const parcialInput = document.getElementById(config.parcialInputId);
+    const resumen = document.getElementById(config.resumenId);
+    const hiddenModo = document.getElementById(config.hiddenModoId);
+    const hiddenMonto = document.getElementById(config.hiddenMontoId);
+
+    if (!capitalInput || !totalInput || !plazoInput || !hiddenModo || !hiddenMonto) { return; }
+
+    const ensureMode = function () {
+      let selected = null;
+      radios.forEach(function (radio) {
+        if (radio.checked) { selected = radio.value; }
+      });
+      if (!selected && radios.length > 0) {
+        radios[0].checked = true;
+        selected = radios[0].value;
+      }
+      return selected || 'total';
+    };
+
+    const update = function () {
+      const capitalValue = parseFloat(capitalInput.value);
+      const show = !Number.isNaN(capitalValue) && Math.abs(capitalValue) < 1e-6;
+      box.classList.toggle('hidden', !show);
+
+      if (!show) {
+        hiddenModo.value = '';
+        hiddenMonto.value = '';
+        if (parcialWrap) { parcialWrap.classList.add('hidden'); }
+        if (parcialInput) {
+          parcialInput.value = '';
+          parcialInput.required = false;
+        }
+        if (resumen) {
+          resumen.textContent = 'Ingresá el plazo y el total de intereses para mostrar el cálculo.';
+        }
+        return;
+      }
+
+      const modo = ensureMode();
+      const totalIntereses = parseFloat(totalInput.value);
+      const plazo = parseFloat(plazoInput.value);
+      let base = 0;
+
+      if (parcialWrap) {
+        const isParcial = modo === 'parcial';
+        parcialWrap.classList.toggle('hidden', !isParcial);
+        if (parcialInput) { parcialInput.required = isParcial; }
+      }
+
+      if (modo === 'parcial' && parcialInput) {
+        const parcialVal = parseFloat(parcialInput.value);
+        base = !Number.isNaN(parcialVal) ? Math.max(0, parcialVal) : 0;
+      } else {
+        base = !Number.isNaN(totalIntereses) ? Math.max(0, totalIntereses) : 0;
+      }
+
+      hiddenModo.value = modo;
+      hiddenMonto.value = base > 0 ? base.toFixed(2) : '';
+
+      if (resumen) {
+        if (base > 0 && !Number.isNaN(plazo) && plazo > 0) {
+          const interesMensual = base / plazo;
+          const interesQuincenal = interesMensual / 2;
+          resumen.textContent = 'Interés mensual estimado: L ' + interesMensual.toFixed(2) + ' | Quincenal aprox.: L ' + interesQuincenal.toFixed(2);
+        } else if (base > 0) {
+          resumen.textContent = 'Indicá el plazo del préstamo para calcular el interés mensual.';
+        } else {
+          resumen.textContent = 'Ingresá un monto para distribuir los intereses.';
+        }
+      }
+    };
+
+    const listeners = [
+      { el: capitalInput, evt: 'input' },
+      { el: totalInput, evt: 'input' },
+      { el: plazoInput, evt: 'input' },
+      { el: parcialInput, evt: 'input' },
+    ];
+
+    radios.forEach(function (radio) {
+      radio.addEventListener('change', update);
+    });
+
+    listeners.forEach(function (listener) {
+      if (listener.el) { listener.el.addEventListener(listener.evt, update); }
+    });
+
+    form.addEventListener('submit', update);
+
+    update();
+  }
+
+  setupSoloInteresFeature({
+    boxId: 'solo-interes-box-main',
+    radioName: 'solo_interes_opcion_main',
+    parcialWrapId: 'solo-interes-parcial-main',
+    parcialInputId: 'solo_interes_parcial_monto_main',
+    resumenId: 'solo-interes-resumen-main',
+    hiddenModoId: 'solo_interes_modo_main',
+    hiddenMontoId: 'solo_interes_monto_main',
+    capitalSelector: 'input[name="cuota_mensual"]',
+    totalSelector: 'input[name="total_intereses"]',
+    plazoSelector: 'input[name="plazo_prestamo"]',
+  });
+
+  setupSoloInteresFeature({
+    boxId: 'solo-interes-box-modal',
+    radioName: 'solo_interes_opcion_modal',
+    parcialWrapId: 'solo-interes-parcial-modal',
+    parcialInputId: 'solo_interes_parcial_monto_modal',
+    resumenId: 'solo-interes-resumen-modal',
+    hiddenModoId: 'solo_interes_modo_modal',
+    hiddenMontoId: 'solo_interes_monto_modal',
+    capitalSelector: 'input[name="cuota_capital"]',
+    totalSelector: 'input[name="total_intereses"]',
+    plazoSelector: 'input[name="plazo_meses"]',
+  });
+
 </script>
             </td>
                 </tr>
