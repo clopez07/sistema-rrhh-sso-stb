@@ -4,9 +4,21 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class EppRequeridosController extends Controller
 {
+    private function normalize(?string $value): string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        $value = mb_strtolower($value, 'UTF-8');
+        $value = preg_replace('/\s+/u', ' ', $value);
+        return (string) $value;
+    }
+
     public function index(Request $request)
     {
         $buscarPuesto = trim((string)$request->input('puesto', ''));
@@ -15,24 +27,17 @@ class EppRequeridosController extends Controller
 
         $years = range((int)date('Y'), (int)date('Y') - 10);
 
-        // 1) Puestos QUE TIENEN EPP OBLIGATORIOS (solo esos aparecen)
-        $puestos = DB::table('puesto_trabajo as pt')
-            ->select('pt.id_puesto_trabajo', 'pt.puesto_trabajo', 'pt.departamento')
-            ->where(function ($q) {
-                $q->where('pt.estado', 1)->orWhereNull('pt.estado');
-            })
-            ->whereExists(function ($q) {
-                $q->from('puestos_epp as pe')
-                  ->whereColumn('pe.id_puesto_trabajo', 'pt.id_puesto_trabajo');
-            })
-            ->when($buscarPuesto !== '', function ($q) use ($buscarPuesto) {
-                $q->where(function ($w) use ($buscarPuesto) {
-                    $w->where('pt.puesto_trabajo', 'like', "%{$buscarPuesto}%")
-                      ->orWhere('pt.departamento', 'like', "%{$buscarPuesto}%");
-                });
-            })
-            ->orderBy('pt.departamento')
-            ->orderBy('pt.puesto_trabajo')
+        $puestosQuery = DB::table('puesto_trabajo_matriz as ptm')
+            ->leftJoin('departamento as d', 'ptm.id_departamento', '=', 'd.id_departamento')
+            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento');
+
+        if ($buscarPuesto !== '') {
+            $needle = $this->normalize($buscarPuesto);
+            $puestosQuery->whereRaw('LOWER(ptm.puesto_trabajo_matriz) LIKE ?', ["%{$needle}%"]);
+        }
+
+        $puestos = $puestosQuery
+            ->orderBy('ptm.puesto_trabajo_matriz')
             ->get();
 
         if ($puestos->isEmpty()) {
@@ -52,36 +57,129 @@ class EppRequeridosController extends Controller
                 'deptPivot'     => [],
                 'deptTotals'    => [],
                 'deptGrand'     => ['req'=>0,'ent'=>0,'pend'=>0],
+                'rowById'       => [],
             ]);
         }
 
-        $puestoIds = $puestos->pluck('id_puesto_trabajo')->all();
+        $rowById = [];
+        $nameToMatrix = [];
+        foreach ($puestos as $row) {
+            $rowId = (int) $row->id_puesto_trabajo_matriz;
+            $rowById[$rowId] = $row;
+            $normalized = $this->normalize($row->puesto_trabajo_matriz);
+            if ($normalized !== '') {
+                $nameToMatrix[$normalized] = $rowId;
+            }
+        }
 
-        // 2) Empleados activos por puesto (requeridos = uno por empleado)
-        $totEmpleados = DB::table('empleado as emp')
-            ->select('emp.id_puesto_trabajo', DB::raw('COUNT(*) as n'))
-            ->whereIn('emp.id_puesto_trabajo', $puestoIds)
+        $empleadosRaw = DB::table('empleado as e')
+            ->leftJoin('puesto_trabajo as pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->select(
+                'e.id_empleado',
+                'e.nombre_completo',
+                'e.codigo_empleado',
+                'e.identidad',
+                'e.id_puesto_trabajo',
+                'e.id_puesto_trabajo_matriz',
+                'pt.puesto_trabajo as legacy_nombre'
+            )
             ->where(function ($q) {
-                $q->where('emp.estado', 1)->orWhereNull('emp.estado');
+                $q->where('e.estado', 1)->orWhereNull('e.estado');
             })
-            ->groupBy('emp.id_puesto_trabajo')
-            ->pluck('n', 'id_puesto_trabajo'); // mapa puesto_id => total empleados
+            ->get();
 
-        // 3) Columnas EPP = EPP obligatorios en estos puestos (filtrables por texto)
-        $epps = DB::table('puestos_epp as pe')
-            ->join('epp as e', 'e.id_epp', '=', 'pe.id_epp')
-            ->whereIn('pe.id_puesto_trabajo', $puestoIds)
-            ->when($buscarEpp !== '', function ($q) use ($buscarEpp) {
-                $q->where(function ($w) use ($buscarEpp) {
-                    $w->where('e.equipo', 'like', "%{$buscarEpp}%")
-                      ->orWhere('e.codigo', 'like', "%{$buscarEpp}%");
-                });
-            })
-            ->distinct()
-            ->orderBy('e.equipo')
-            ->get(['e.id_epp', 'e.equipo', 'e.codigo']);
+        $legacyIdToMatrix = [];
+        $empleadosPorMatrix = [];
+        foreach ($rowById as $rowId => $row) {
+            $empleadosPorMatrix[$rowId] = [];
+        }
 
-        if ($epps->isEmpty()) {
+        foreach ($empleadosRaw as $emp) {
+            $matrixId = $emp->id_puesto_trabajo_matriz ? (int)$emp->id_puesto_trabajo_matriz : null;
+
+            if (!$matrixId && $emp->id_puesto_trabajo && isset($legacyIdToMatrix[$emp->id_puesto_trabajo])) {
+                $matrixId = $legacyIdToMatrix[$emp->id_puesto_trabajo];
+            }
+
+            if (!$matrixId && $emp->legacy_nombre) {
+                $norm = $this->normalize($emp->legacy_nombre);
+                if ($norm !== '' && isset($nameToMatrix[$norm])) {
+                    $matrixId = $nameToMatrix[$norm];
+                    if ($emp->id_puesto_trabajo) {
+                        $legacyIdToMatrix[$emp->id_puesto_trabajo] = $matrixId;
+                    }
+                }
+            }
+
+            if ($matrixId && isset($empleadosPorMatrix[$matrixId])) {
+                $empleadosPorMatrix[$matrixId][] = $emp;
+            }
+        }
+
+        $totEmpleados = [];
+        foreach ($empleadosPorMatrix as $matrixId => $lista) {
+            $totEmpleados[$matrixId] = count($lista);
+        }
+
+        $hasMatrixColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo_matriz');
+        $hasLegacyColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo');
+
+        $peQuery = DB::table('puestos_epp as pe')
+            ->leftJoin('epp as e', 'e.id_epp', '=', 'pe.id_epp');
+
+        if ($hasLegacyColumn) {
+            $peQuery->leftJoin('puesto_trabajo as pt', 'pe.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo');
+        }
+
+        $peSelect = [
+            'pe.id_puesto_trabajo_matriz',
+            $hasLegacyColumn ? 'pe.id_puesto_trabajo' : DB::raw('NULL as id_puesto_trabajo'),
+            $hasLegacyColumn ? 'pt.puesto_trabajo as legacy_nombre' : DB::raw('NULL as legacy_nombre'),
+            'e.id_epp',
+            'e.equipo',
+            'e.codigo',
+        ];
+
+        $peRows = $peQuery
+            ->select($peSelect)
+            ->get();
+
+        $eppsDict = [];
+        $isOblig = [];
+
+        foreach ($peRows as $row) {
+            $matrixId = null;
+            if ($hasMatrixColumn && $row->id_puesto_trabajo_matriz) {
+                $matrixId = (int) $row->id_puesto_trabajo_matriz;
+            } elseif ($hasLegacyColumn && $row->id_puesto_trabajo && isset($legacyIdToMatrix[$row->id_puesto_trabajo])) {
+                $matrixId = $legacyIdToMatrix[$row->id_puesto_trabajo];
+            } elseif ($hasLegacyColumn && $row->legacy_nombre) {
+                $norm = $this->normalize($row->legacy_nombre);
+                if ($norm !== '' && isset($nameToMatrix[$norm])) {
+                    $matrixId = $nameToMatrix[$norm];
+                    if ($row->id_puesto_trabajo) {
+                        $legacyIdToMatrix[$row->id_puesto_trabajo] = $matrixId;
+                    }
+                }
+            }
+
+            if (!$matrixId || !isset($rowById[$matrixId])) {
+                continue;
+            }
+
+            $eppId = (int) $row->id_epp;
+            $isOblig[$matrixId][$eppId] = true;
+
+            if (!isset($eppsDict[$eppId])) {
+                $eppsDict[$eppId] = (object) [
+                    'id_epp' => $eppId,
+                    'equipo' => $row->equipo,
+                    'codigo' => $row->codigo,
+                ];
+            }
+        }
+
+        if (empty($eppsDict)) {
             return view('epp.matriz_requeridos', [
                 'years'         => $years,
                 'anio'          => $anio,
@@ -91,45 +189,82 @@ class EppRequeridosController extends Controller
                 'epps'          => collect(),
                 'pivot'         => [],
                 'totales'       => [],
-                'totEmpleados'  => $totEmpleados->toArray(),
+                'totEmpleados'  => $totEmpleados,
                 'deptOrder'     => [],
                 'deptPuestos'   => [],
                 'deptEmp'       => [],
                 'deptPivot'     => [],
                 'deptTotals'    => [],
                 'deptGrand'     => ['req'=>0,'ent'=>0,'pend'=>0],
+                'rowById'       => $rowById,
             ]);
         }
 
+        $epps = collect(array_values($eppsDict))
+            ->sort(function ($a, $b) {
+                return strnatcasecmp($a->equipo, $b->equipo);
+            })
+            ->values();
+
         $eppIds = $epps->pluck('id_epp')->all();
 
-        // 4) Mapa de OBLIGATORIEDAD: solo estos combos (puesto,epp) llevan contador
-        $oblig = DB::table('puestos_epp as pe')
-            ->whereIn('pe.id_puesto_trabajo', $puestoIds)
-            ->whereIn('pe.id_epp', $eppIds)
-            ->get(['pe.id_puesto_trabajo','pe.id_epp']);
+        $entregadosQuery = DB::table('asignacion_epp as asig')
+            ->join('empleado as emp', 'emp.id_empleado', '=', 'asig.id_empleado');
 
-        $isOblig = [];
-        foreach ($oblig as $o) {
-            $isOblig[$o->id_puesto_trabajo][$o->id_epp] = true;
+        if ($hasLegacyColumn) {
+            $entregadosQuery->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo');
         }
 
-        // 5) ENTREGADOS por (puesto,epp) en el año (empleados distintos del puesto)
-        $entregados = DB::table('asignacion_epp as asig')
-            ->join('empleado as emp', 'emp.id_empleado', '=', 'asig.id_empleado')
-            ->select('emp.id_puesto_trabajo as puesto_id', 'asig.id_epp', DB::raw('COUNT(DISTINCT asig.id_empleado) as cnt'))
-            ->whereIn('emp.id_puesto_trabajo', $puestoIds)
+        $entregadosSelect = [
+            'emp.id_puesto_trabajo_matriz',
+            $hasLegacyColumn ? 'emp.id_puesto_trabajo' : DB::raw('NULL as id_puesto_trabajo'),
+            $hasLegacyColumn ? 'pt.puesto_trabajo as legacy_nombre' : DB::raw('NULL as legacy_nombre'),
+            'asig.id_epp',
+            DB::raw('COUNT(DISTINCT asig.id_empleado) as cnt'),
+        ];
+
+        $entregadosGroup = [
+            'emp.id_puesto_trabajo_matriz',
+            'asig.id_epp',
+        ];
+
+        if ($hasLegacyColumn) {
+            $entregadosGroup[] = 'emp.id_puesto_trabajo';
+            $entregadosGroup[] = 'pt.puesto_trabajo';
+        }
+
+        $entregadosRows = $entregadosQuery
+            ->select($entregadosSelect)
             ->whereIn('asig.id_epp', $eppIds)
             ->whereYear('asig.fecha_entrega_epp', $anio)
-            ->groupBy('emp.id_puesto_trabajo', 'asig.id_epp')
+            ->groupBy($entregadosGroup)
             ->get();
 
         $idxEnt = [];
-        foreach ($entregados as $r) {
-            $idxEnt[$r->puesto_id][$r->id_epp] = (int)$r->cnt;
+        foreach ($entregadosRows as $row) {
+            $matrixId = null;
+            if ($row->id_puesto_trabajo_matriz) {
+                $matrixId = (int) $row->id_puesto_trabajo_matriz;
+            } elseif ($row->id_puesto_trabajo && isset($legacyIdToMatrix[$row->id_puesto_trabajo])) {
+                $matrixId = $legacyIdToMatrix[$row->id_puesto_trabajo];
+            } elseif ($row->legacy_nombre) {
+                $norm = $this->normalize($row->legacy_nombre);
+                if ($norm !== '' && isset($nameToMatrix[$norm])) {
+                    $matrixId = $nameToMatrix[$norm];
+                    if ($row->id_puesto_trabajo) {
+                        $legacyIdToMatrix[$row->id_puesto_trabajo] = $matrixId;
+                    }
+                }
+            }
+
+            if (!$matrixId || !isset($rowById[$matrixId])) {
+                continue;
+            }
+
+            $eppId = (int) $row->id_epp;
+            $idxEnt[$matrixId][$eppId] = (int) $row->cnt;
         }
 
-        // 6) PIVOT por puesto y TOTALES por EPP (solo combos obligatorios)
         $pivot   = [];
         $totales = [];
         foreach ($epps as $e) {
@@ -137,49 +272,47 @@ class EppRequeridosController extends Controller
         }
 
         foreach ($puestos as $p) {
-            $row = [];
-            $reqPuesto = (int)($totEmpleados[$p->id_puesto_trabajo] ?? 0);
+            $rowId = (int) $p->id_puesto_trabajo_matriz;
+            $row   = [];
+            $reqPuesto = $totEmpleados[$rowId] ?? 0;
 
             foreach ($epps as $e) {
-                if (empty($isOblig[$p->id_puesto_trabajo][$e->id_epp])) {
-                    $row[$e->id_epp] = null; // NO obligatorio => celda en blanco
+                if (empty($isOblig[$rowId][$e->id_epp])) {
+                    $row[$e->id_epp] = null;
                     continue;
                 }
-                $ent  = (int)($idxEnt[$p->id_puesto_trabajo][$e->id_epp] ?? 0);
-                $req  = $reqPuesto;                 // 1 por empleado
+                $ent  = (int)($idxEnt[$rowId][$e->id_epp] ?? 0);
+                $req  = $reqPuesto;
                 $pend = max(0, $req - $ent);
 
                 $row[$e->id_epp] = ['req'=>$req,'ent'=>$ent,'pend'=>$pend];
 
-                // Totales por EPP (solo obligatorios)
                 $totales[$e->id_epp]['req']  += $req;
                 $totales[$e->id_epp]['ent']  += $ent;
                 $totales[$e->id_epp]['pend'] += $pend;
             }
 
-            $pivot[$p->id_puesto_trabajo] = $row;
+            $pivot[$rowId] = $row;
         }
 
-        // 7) AGRUPACIÓN PARA LA TABLA DETALLADA: Departamento -> (Subtotal + Puestos)
-        $deptPuestos = [];   // dept => [puestos...]
-        $deptEmp     = [];   // dept => total empleados (suma de puestos)
-        $deptPivot   = [];   // dept => [epp_id => ['req','ent','pend']]
+        $deptPuestos = [];
+        $deptEmp     = [];
+        $deptPivot   = [];
 
         foreach ($puestos as $p) {
+            $rowId = (int) $p->id_puesto_trabajo_matriz;
             $dep = $p->departamento ?: 'Sin departamento';
 
-            // lista de puestos por depto
             $deptPuestos[$dep] = $deptPuestos[$dep] ?? [];
-            $deptPuestos[$dep][] = $p;
+            $deptPuestos[$dep][] = ['id' => $rowId, 'row' => $p];
 
-            // total empleados por depto
-            $deptEmp[$dep] = ($deptEmp[$dep] ?? 0) + (int)($totEmpleados[$p->id_puesto_trabajo] ?? 0);
+            $deptEmp[$dep] = ($deptEmp[$dep] ?? 0) + ($totEmpleados[$rowId] ?? 0);
 
-            // acumular por EPP en el depto (solo celdas obligatorias)
             foreach ($epps as $e) {
-                $cell = $pivot[$p->id_puesto_trabajo][$e->id_epp] ?? null;
-                if (is_null($cell)) continue;
-
+                $cell = $pivot[$rowId][$e->id_epp] ?? null;
+                if (is_null($cell)) {
+                    continue;
+                }
                 if (!isset($deptPivot[$dep][$e->id_epp])) {
                     $deptPivot[$dep][$e->id_epp] = ['req'=>0,'ent'=>0,'pend'=>0];
                 }
@@ -192,18 +325,18 @@ class EppRequeridosController extends Controller
         $deptOrder = array_keys($deptPuestos);
         sort($deptOrder, SORT_NATURAL | SORT_FLAG_CASE);
 
-        // 8) === RESUMEN POR DEPARTAMENTO (para la tabla de arriba) ===
-        $deptTotals = [];           // dept => ['req','ent','pend']
+        $deptTotals = [];
         foreach ($deptOrder as $dep) {
             $deptTotals[$dep] = ['req'=>0,'ent'=>0,'pend'=>0];
             if (!empty($deptPivot[$dep])) {
-                foreach ($deptPivot[$dep] as $eppId => $vals) {
+                foreach ($deptPivot[$dep] as $vals) {
                     $deptTotals[$dep]['req']  += $vals['req'];
                     $deptTotals[$dep]['ent']  += $vals['ent'];
                     $deptTotals[$dep]['pend'] += $vals['pend'];
                 }
             }
         }
+
         $deptGrand = ['req'=>0,'ent'=>0,'pend'=>0];
         foreach ($deptTotals as $t) {
             $deptGrand['req']  += $t['req'];
@@ -220,17 +353,15 @@ class EppRequeridosController extends Controller
             'epps'          => $epps,
             'pivot'         => $pivot,
             'totales'       => $totales,
-            'totEmpleados'  => $totEmpleados->toArray(),
-
-            // Para la misma tabla con agrupación
+            'totEmpleados'  => $totEmpleados,
             'deptOrder'     => $deptOrder,
             'deptPuestos'   => $deptPuestos,
             'deptEmp'       => $deptEmp,
             'deptPivot'     => $deptPivot,
-
-            // Para el resumen superior
             'deptTotals'    => $deptTotals,
             'deptGrand'     => $deptGrand,
+            'rowById'       => $rowById,
         ]);
     }
 }
+

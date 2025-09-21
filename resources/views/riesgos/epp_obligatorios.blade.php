@@ -41,18 +41,17 @@
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Puesto de trabajo</label>
             @php
-              $__sel = collect($puestos)->firstWhere('id_puesto_trabajo', $puestoId);
-              $__labelSel = $__sel ? ($__sel->puesto_trabajo . ($__sel->departamento ? ' – ' . $__sel->departamento : '')) : '';
+              $__labelSel = $puestoSeleccionado->label ?? '';
             @endphp
-            <input type="text" id="puesto-input" list="puestos-list" class="w-full rounded-lg border-gray-300" placeholder="Escribe para buscar…" autocomplete="off" value="{{ $__labelSel }}">
+            <input type="text" id="puesto-input" list="puestos-list" class="w-full rounded-lg border-gray-300" placeholder="Escribe para buscar..." autocomplete="off" value="{{ $__labelSel }}">
             <datalist id="puestos-list">
                 @foreach ($puestos as $p)
-                    <option data-id="{{ $p->id_puesto_trabajo }}" value="{{ $p->puesto_trabajo }}"></option>
+                    <option data-token="{{ $p->token }}" value="{{ $p->label }}"></option>
                 @endforeach
             </datalist>
-            <input type="hidden" name="puesto" id="puesto-id" value="{{ $puestoId }}">
-            <p id="puesto-help" class="text-xs text-gray-500 mt-1">Escribe y selecciona una opción de la lista.</p>
-            <p id="puesto-error" class="text-xs text-red-600 mt-1 hidden">Selecciona un puesto válido de la lista.</p>
+            <input type="hidden" name="puesto" id="puesto-id" value="{{ $puestoToken }}">
+            <p id="puesto-help" class="text-xs text-gray-500 mt-1">Escribe y selecciona una opcion de la lista.</p>
+            <p id="puesto-error" class="text-xs text-red-600 mt-1 hidden">Selecciona un puesto valido de la lista.</p>
             <script>
               document.addEventListener('DOMContentLoaded', function(){
                 const input  = document.getElementById('puesto-input');
@@ -61,11 +60,11 @@
                 const err    = document.getElementById('puesto-error');
                 function syncHidden(){
                   const val = (input.value || '').trim();
-                  let matched = '';
+                  let matched = null;
                   for (const opt of list.options) {
-                    if (opt.value === val) { matched = opt.dataset.id || ''; break; }
+                    if (opt.value === val) { matched = opt; break; }
                   }
-                  hidden.value = matched; // vacío si no coincide exactamente
+                  hidden.value = matched ? (matched.dataset.token || '') : ''; // vacio si no coincide
                   if (err) err.classList.add('hidden');
                 }
                 input.addEventListener('input', syncHidden);
@@ -96,7 +95,7 @@
             <button class="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
                 Buscar
             </button>
-            @if($puestoId)
+            @if($puestoToken)
             <a href="{{ route('riesgos.epp.obligatorios') }}" class="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">
                 Limpiar
             </a>
@@ -104,7 +103,7 @@
         </div>
     </form>
 
-    @if($puestoId)
+    @if($puestoToken)
         <div class="mt-6 space-y-4">
             @if(empty($matriz))
                 <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -179,3 +178,4 @@
     @endif
 </div>
 @endsection
+

@@ -3,36 +3,61 @@
 namespace App\Http\Controllers;
 
 use App\Models\EPP;
-use App\Models\PuestoEpp;
-use App\Models\PuestosSistema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class MatrizPuestosEppController extends Controller
 {
     public function index(Request $request)
     {
-        $buscarPuesto = $request->string('puesto')->toString();
-        $buscarEpp    = $request->string('epp')->toString();
+        $buscarPuesto = trim((string) $request->input('puesto', ''));
+        $buscarEpp    = trim((string) $request->input('epp', ''));
 
-        $puestos = PuestosSistema::query()
-            ->when($buscarPuesto, fn ($q) => $q->where('puesto_trabajo', 'like', "%{$buscarPuesto}%"))
-            ->where('estado', 1)
-            ->orderBy('puesto_trabajo')
-            ->get(['id_puesto_trabajo', 'puesto_trabajo', 'departamento']);
+        $puestosQuery = DB::table('puesto_trabajo_matriz as ptm')
+            ->leftJoin('departamento as d', 'ptm.id_departamento', '=', 'd.id_departamento')
+            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento');
+
+        if ($buscarPuesto !== '') {
+            $needle = mb_strtolower($buscarPuesto, 'UTF-8');
+            $puestosQuery->whereRaw('LOWER(ptm.puesto_trabajo_matriz) LIKE ?', ["%{$needle}%"]);
+        }
+
+        $puestos = $puestosQuery
+            ->orderBy('ptm.puesto_trabajo_matriz')
+            ->get();
 
         $epps = EPP::query()
-            ->when($buscarEpp, fn ($q) => $q->where('equipo', 'like', "%{$buscarEpp}%"))
+            ->when($buscarEpp !== '', function ($q) use ($buscarEpp) {
+                $needle = mb_strtolower($buscarEpp, 'UTF-8');
+                $q->whereRaw('LOWER(equipo) LIKE ?', ["%{$needle}%"]);
+            })
             ->orderBy('equipo')
             ->get(['id_epp', 'equipo', 'codigo']);
 
-        $pivot = DB::table('puestos_epp')
-            ->select('id_puesto_trabajo', 'id_epp')
-            ->get()
-            ->groupBy('id_puesto_trabajo')
-            ->map(function ($rows) {
-                return collect($rows)->pluck('id_epp')->flip()->map(fn () => true)->all();
-            });
+
+$hasMatrixColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo_matriz');
+$hasLegacyColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo');
+
+$selectPuesto = 'id_puesto_trabajo as id_puesto';
+if ($hasMatrixColumn && $hasLegacyColumn) {
+    $selectPuesto = 'COALESCE(id_puesto_trabajo_matriz, id_puesto_trabajo) as id_puesto';
+} elseif ($hasMatrixColumn) {
+    $selectPuesto = 'id_puesto_trabajo_matriz as id_puesto';
+} elseif ($hasLegacyColumn) {
+    $selectPuesto = 'id_puesto_trabajo as id_puesto';
+}
+
+$pivotPairs = DB::table('puestos_epp')
+    ->select([
+        DB::raw($selectPuesto),
+        'id_epp',
+    ])
+    ->get();
+
+        $pivot = $pivotPairs->groupBy('id_puesto')->map(function ($rows) {
+            return collect($rows)->pluck('id_epp')->flip()->map(fn () => true)->all();
+        })->all();
 
         return view('epp.puestos_epp', compact('puestos', 'epps', 'pivot', 'buscarPuesto', 'buscarEpp'));
     }
@@ -43,7 +68,10 @@ class MatrizPuestosEppController extends Controller
         $puestosVisibles = array_values(array_unique(array_map('intval', (array) $request->input('puestos_visibles', []))));
         $eppsVisibles    = array_values(array_unique(array_map('intval', (array) $request->input('epps_visible', []))));
 
-        DB::transaction(function () use ($matrix, $puestosVisibles, $eppsVisibles) {
+        $hasMatrixColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo_matriz');
+        $hasLegacyColumn = Schema::hasColumn('puestos_epp', 'id_puesto_trabajo');
+
+        DB::transaction(function () use ($matrix, $puestosVisibles, $eppsVisibles, $hasMatrixColumn, $hasLegacyColumn) {
             $seleccionados = [];
             foreach ($matrix as $idPuesto => $cols) {
                 $idP = (int) $idPuesto;
@@ -56,46 +84,79 @@ class MatrizPuestosEppController extends Controller
                 }
             }
 
-            $actualQuery = PuestoEpp::query();
-            if (!empty($puestosVisibles)) {
-                $actualQuery->whereIn('id_puesto_trabajo', $puestosVisibles);
-            }
-            if (!empty($eppsVisibles)) {
-                $actualQuery->whereIn('id_epp', $eppsVisibles);
-            }
-            $actual = $actualQuery
-                ->get(['id_puesto_trabajo', 'id_epp'])
-                ->map(fn ($r) => $r->id_puesto_trabajo.'-'.$r->id_epp)
-                ->toArray();
+
+$actualQuery = DB::table('puestos_epp');
+if ($hasMatrixColumn) {
+    if (!empty($puestosVisibles)) {
+        $actualQuery->whereIn('id_puesto_trabajo_matriz', $puestosVisibles);
+    }
+} elseif ($hasLegacyColumn && !empty($puestosVisibles)) {
+    $actualQuery->whereIn('id_puesto_trabajo', $puestosVisibles);
+}
+if (!empty($eppsVisibles)) {
+    $actualQuery->whereIn('id_epp', $eppsVisibles);
+}
+
+$selectPuestoActual = 'id_puesto_trabajo as id_puesto';
+if ($hasMatrixColumn && $hasLegacyColumn) {
+    $selectPuestoActual = 'COALESCE(id_puesto_trabajo_matriz, id_puesto_trabajo) as id_puesto';
+} elseif ($hasMatrixColumn) {
+    $selectPuestoActual = 'id_puesto_trabajo_matriz as id_puesto';
+} elseif ($hasLegacyColumn) {
+    $selectPuestoActual = 'id_puesto_trabajo as id_puesto';
+}
+
+$actual = $actualQuery
+    ->select([
+        DB::raw($selectPuestoActual),
+        'id_epp',
+    ])
+    ->get()
+    ->map(fn ($row) => $row->id_puesto.'-'.$row->id_epp)
+    ->toArray();
 
             $toInsert = array_diff($seleccionados, $actual);
             $toDelete = array_diff($actual, $seleccionados);
 
-            if (!empty($toInsert)) {
-                $rows = [];
-                foreach ($toInsert as $pair) {
-                    [$p, $e] = explode('-', $pair);
-                    $rows[] = [
-                        'id_puesto_trabajo' => (int) $p,
-                        'id_epp'            => (int) $e,
-                    ];
-                }
-                PuestoEpp::query()->insertOrIgnore($rows);
-            }
 
-            if (!empty($toDelete)) {
-                foreach ($toDelete as $pair) {
-                    [$p, $e] = explode('-', $pair);
-                    PuestoEpp::query()
-                        ->where('id_puesto_trabajo', (int) $p)
-                        ->where('id_epp', (int) $e)
-                        ->delete();
-                }
+if (!empty($toInsert)) {
+    $rows = [];
+    foreach ($toInsert as $pair) {
+        [$p, $e] = explode('-', $pair);
+        $row = ['id_epp' => (int) $e];
+        if ($hasMatrixColumn) {
+            $row['id_puesto_trabajo_matriz'] = (int) $p;
+            if ($hasLegacyColumn) {
+                $row['id_puesto_trabajo'] = (int) $p;
             }
+        } elseif ($hasLegacyColumn) {
+            $row['id_puesto_trabajo'] = (int) $p;
+        }
+        $rows[] = $row;
+    }
+    DB::table('puestos_epp')->insertOrIgnore($rows);
+}
+
+if (!empty($toDelete)) {
+    foreach ($toDelete as $pair) {
+        [$p, $e] = explode('-', $pair);
+        $delete = DB::table('puestos_epp')->where('id_epp', (int) $e);
+        if ($hasMatrixColumn) {
+            $delete->where(function ($query) use ($p, $hasLegacyColumn) {
+                $query->where('id_puesto_trabajo_matriz', (int) $p);
+                if ($hasLegacyColumn) {
+                    $query->orWhere('id_puesto_trabajo', (int) $p);
+                }
+            });
+        } elseif ($hasLegacyColumn) {
+            $delete->where('id_puesto_trabajo', (int) $p);
+        }
+        $delete->delete();
+    }
+}
         });
 
         return redirect()->route('epp.puestos_epp')
-            ->with('ok', '¡Matriz actualizada con éxito!');
+            ->with('ok', 'Matriz actualizada con exito!');
     }
 }
-

@@ -121,23 +121,31 @@ class EPP extends Controller
         public function controlentrega(Request $request)
     {
         $controlentrega = DB::table('asignacion_epp as ae')
-        ->join('epp as ep', 'ae.id_epp', '=', 'ep.id_epp')
-        ->join('empleado as em', 'ae.id_empleado', '=', 'em.id_empleado')
-        ->join('puesto_trabajo as pt', 'em.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
-        ->select(
-            'ae.id_asignacion_epp',
-            'em.nombre_completo',
-            'pt.puesto_trabajo',
-            'pt.departamento',
-            'ep.equipo',
-            'ae.fecha_entrega_epp'
-        )
-        ->when($request->search, function ($query, $search) {
-            return $query->where('em.nombre_completo', 'like', "%{$search}%")
-                        ->orWhere('pt.puesto_trabajo', 'like', "%{$search}%");
-        })
-        ->paginate(10)
-        ->appends(['search' => $request->search]);
+            ->join('epp as ep', 'ae.id_epp', '=', 'ep.id_epp')
+            ->join('empleado as em', 'ae.id_empleado', '=', 'em.id_empleado')
+            ->leftJoin('puesto_trabajo_matriz as ptm', 'em.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
+            ->leftJoin('departamento as dept', 'ptm.id_departamento', '=', 'dept.id_departamento')
+            ->leftJoin('puesto_trabajo as pt', 'em.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->select(
+                'ae.id_asignacion_epp',
+                'em.nombre_completo',
+                DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) as puesto_trabajo'),
+                DB::raw('COALESCE(dept.departamento, pt.departamento) as departamento'),
+                'ep.equipo',
+                'ae.fecha_entrega_epp'
+            )
+            ->when($request->search, function ($query, $search) {
+                $term = "%{$search}%";
+                return $query->where(function ($inner) use ($term) {
+                    $inner->where('em.nombre_completo', 'like', $term)
+                        ->orWhere('ptm.puesto_trabajo_matriz', 'like', $term)
+                        ->orWhere('pt.puesto_trabajo', 'like', $term)
+                        ->orWhere('dept.departamento', 'like', $term);
+                });
+            })
+            ->orderByRaw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo)')
+            ->paginate(10)
+            ->appends(['search' => $request->search]);
         $equipo = DB::select('CALL sp_obtener_epp()');
         $empleados = DB::select('CALL sp_obtener_empleados()');
         $puestos = DB::select('CALL sp_obtener_puestos_trabajo_sistema()');
@@ -213,7 +221,9 @@ public function store(Request $request)
     // ── 2) Consultar filas recién insertadas (incluye id_epp)
     $rows = DB::table('asignacion_epp as aepp')
         ->join('empleado as emp', 'aepp.id_empleado', '=', 'emp.id_empleado')
-        ->join('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+        ->leftJoin('puesto_trabajo_matriz as ptm', 'emp.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
+        ->leftJoin('departamento as dept', 'ptm.id_departamento', '=', 'dept.id_departamento')
+        ->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
         ->join('epp as epp', 'aepp.id_epp', '=', 'epp.id_epp')
         ->leftJoin('tipo_proteccion as tp', 'epp.id_tipo_proteccion', '=', 'tp.id_tipo_proteccion')
         ->whereIn('aepp.id_empleado', $empleadoIds)
@@ -222,14 +232,14 @@ public function store(Request $request)
         ->select(
             'emp.id_empleado',
             'emp.nombre_completo',
-            'pt.puesto_trabajo',
-            'pt.departamento',
-            'epp.id_epp',                     // ← importante para buscar entrega previa
+            DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) as puesto_trabajo'),
+            DB::raw('COALESCE(dept.departamento, pt.departamento) as departamento'),
+            'epp.id_epp',                     // importante para buscar entrega previa
             'epp.equipo as epp',
             'tp.tipo_proteccion as tipo_proteccion',
             'aepp.fecha_entrega_epp as fecha'
         )
-        ->orderBy('pt.puesto_trabajo')
+        ->orderByRaw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo)')
         ->orderBy('emp.nombre_completo')
         ->orderBy('aepp.fecha_entrega_epp')
         ->get();
@@ -356,12 +366,14 @@ public function store(Request $request)
 
         $query = DB::table('asignacion_epp as aepp')
             ->join('empleado as emp', 'aepp.id_empleado', '=', 'emp.id_empleado')
-            ->join('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->leftJoin('puesto_trabajo_matriz as ptm', 'emp.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
+            ->leftJoin('departamento as dept', 'ptm.id_departamento', '=', 'dept.id_departamento')
+            ->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
             ->join('epp as epp', 'aepp.id_epp', '=', 'epp.id_epp')
             ->select(
                 'emp.nombre_completo',
-                'pt.puesto_trabajo',
-                'pt.departamento',
+                DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) as puesto_trabajo'),
+                DB::raw('COALESCE(dept.departamento, pt.departamento) as departamento'),
                 'epp.equipo as epp',
                 'aepp.fecha_entrega_epp'
             );
@@ -371,29 +383,41 @@ public function store(Request $request)
         }
 
         if ($puesto) {
-            $query->where('pt.puesto_trabajo', $puesto);
+            $query->where(function ($q) use ($puesto) {
+                $q->where('ptm.puesto_trabajo_matriz', $puesto)
+                  ->orWhere('pt.puesto_trabajo', $puesto);
+            });
         }
 
         if ($fecha) {
             $query->where('aepp.fecha_entrega_epp', $fecha);
         }
-        
+
         if ($equipo) {
             $query->where('epp.equipo', $equipo);
         }
 
-        $equipo = $query->get();
+        $equipo = $query
+            ->orderByRaw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo)')
+            ->orderBy('emp.nombre_completo')
+            ->orderBy('aepp.fecha_entrega_epp')
+            ->get();
 
         $empleadosConEpp = DB::table('asignacion_epp as aepp')
-        ->join('empleado as emp', 'aepp.id_empleado', '=', 'emp.id_empleado')
-        ->select(
-            'emp.id_empleado',
-            'emp.nombre_completo'
-        )
-        ->distinct()
-        ->get();
-        $puestos = DB::table('puesto_trabajo')->pluck('puesto_trabajo');
-        $fechas = DB::table('asignacion_epp')->distinct()->pluck('fecha_entrega_epp');
+            ->join('empleado as emp', 'aepp.id_empleado', '=', 'emp.id_empleado')
+            ->select(
+                'emp.id_empleado',
+                'emp.nombre_completo'
+            )
+            ->distinct()
+            ->orderBy('emp.nombre_completo')
+            ->get();
+
+        $puestosMatriz = DB::table('puesto_trabajo_matriz')->pluck('puesto_trabajo_matriz');
+        $puestosLegacy = DB::table('puesto_trabajo')->pluck('puesto_trabajo');
+        $puestos = $puestosMatriz->merge($puestosLegacy)->filter()->unique()->sort()->values();
+
+        $fechas  = DB::table('asignacion_epp')->distinct()->pluck('fecha_entrega_epp');
         $equipos = DB::table('epp')->pluck('equipo');
 
         return view('epp.consultas', compact('equipo', 'puestos', 'fechas', 'equipos', 'empleadosConEpp'));
@@ -409,22 +433,27 @@ public function imprimirConsultas(Request $request)
 
     $query = DB::table('asignacion_epp as aepp')
         ->join('empleado as emp', 'aepp.id_empleado', '=', 'emp.id_empleado')
-        ->join('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+        ->leftJoin('puesto_trabajo_matriz as ptm', 'emp.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
+        ->leftJoin('departamento as dept', 'ptm.id_departamento', '=', 'dept.id_departamento')
+        ->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
         ->join('epp as epp', 'aepp.id_epp', '=', 'epp.id_epp')
         ->select(
             'emp.nombre_completo',
-            'pt.puesto_trabajo',
-            'pt.departamento',
+            DB::raw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo) as puesto_trabajo'),
+            DB::raw('COALESCE(dept.departamento, pt.departamento) as departamento'),
             'epp.equipo as epp',
             'aepp.fecha_entrega_epp'
         );
 
     if ($nombre) $query->where('emp.nombre_completo', $nombre);
-    if ($puesto) $query->where('pt.puesto_trabajo', $puesto);
+    if ($puesto) $query->where(function ($q) use ($puesto) {
+        $q->where('ptm.puesto_trabajo_matriz', $puesto)
+          ->orWhere('pt.puesto_trabajo', $puesto);
+    });
     if ($fecha)  $query->where('aepp.fecha_entrega_epp', $fecha);
     if ($equipo) $query->where('epp.equipo', $equipo);
 
-    $resultados = $query->orderBy('pt.puesto_trabajo')
+    $resultados = $query->orderByRaw('COALESCE(ptm.puesto_trabajo_matriz, pt.puesto_trabajo)')
                         ->orderBy('emp.nombre_completo')
                         ->orderBy('aepp.fecha_entrega_epp')
                         ->get();
