@@ -56,7 +56,9 @@ class ExportPrestamosController extends Controller
         LEFT JOIN planilla pl   ON pl.id_planilla = p.id_planilla
         LEFT JOIN historial_cuotas hc ON hc.id_prestamo = p.id_prestamo
         WHERE COALESCE(e.estado, 1) NOT IN (0, 2)
-        AND COALESCE(p.estado_prestamo, 1) NOT IN (0, 2)
+        AND COALESCE(p.estado_prestamo, 1) <> 2
+        AND (hc.id_historial_cuotas IS NULL
+             OR COALESCE(hc.observaciones, '') NOT LIKE '%Cancelado con refinanciamiento%')
     ),
     cuotas AS (
         SELECT
@@ -181,7 +183,9 @@ WITH cuotas_raw AS (
     LEFT JOIN planilla pl ON pl.id_planilla = p.id_planilla
     LEFT JOIN historial_cuotas hc ON hc.id_prestamo = p.id_prestamo
     WHERE COALESCE(e.estado, 1) NOT IN (0, 2)
-      AND COALESCE(p.estado_prestamo, 1) NOT IN (0, 2)
+      AND COALESCE(p.estado_prestamo, 1) <> 2
+      AND (hc.id_historial_cuotas IS NULL
+           OR COALESCE(hc.observaciones, '') NOT LIKE '%Cancelado con refinanciamiento%')
 ),
 cuotas AS (
     SELECT
