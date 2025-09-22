@@ -8,9 +8,47 @@ use Illuminate\Support\MessageBag;
 use App\Exports\ReporteIluminacionExport;
 use App\Exports\ReporteRuidoExport;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
 
 class MedicionesController extends Controller
 {
+
+    private function xlTitle(string $name): string
+    {
+        $name = preg_replace('/[\\\\\\/\\*\\?\\:\\[\\]]/', ' ', $name);
+        $name = trim($name);
+        if ($name === '') $name = 'Hoja';
+        return mb_substr($name, 0, 31);
+    }
+
+    private function ensureSheet(Spreadsheet $book, string $wantedName, Worksheet $tpl): Worksheet
+    {
+        $title = $this->xlTitle($wantedName);
+
+        // Si ya existe, úsala
+        if ($sheet = $book->getSheetByName($title)) {
+            return $sheet;
+        }
+
+        // Si no existe, generar un título único (Nombre, Nombre (2), ...)
+        $base = $title;
+        $i = 2;
+        while ($book->getSheetByName($title)) {
+            $title = $this->xlTitle(mb_substr($base, 0, 28) . " ($i)");
+            $i++;
+        }
+
+        // Clonar la plantilla y agregarla
+        $new = clone $tpl;
+        $new->setTitle($title);      // fijar título antes de addSheet()
+        $book->addSheet($new);
+
+        return $new;
+    }
+
     public function captureBatch(Request $request)
 {
     $localizaciones = DB::table('localizacion')
@@ -871,5 +909,162 @@ public function exportIluminacion(Request $request)
         'Content-Transfer-Encoding' => 'binary',
     ])->deleteFileAfterSend(true);
 }
+
+public function exportIluminacionDesdePlantilla(Request $request)
+{
+    $year = (int) now()->year;
+
+    $tplPath = storage_path('app/public/medicion_iluminacion.xlsx');
+    if (!is_file($tplPath)) {
+        abort(404, 'No se encontró la plantilla medicion_iluminacion.xlsx en storage/app/public');
+    }
+    $spreadsheet = IOFactory::load($tplPath);
+    /** @var Worksheet $tplSheet */
+    $tplSheet = $spreadsheet->getSheetByName('Plantilla') ?? $spreadsheet->getActiveSheet();
+
+    $headerRow   = 12;
+    $firstData   = 13;
+    $perPage     = 30;
+    $colsRange   = 'A:F';
+
+    $colNo   = 'A';
+    $colZona = 'B';
+    $colProm = 'C';
+    $colLim  = 'D';
+    $colAcc  = 'F';
+
+    $emByLoc = DB::table('estandar_iluminacion')
+        ->select('id_localizacion', DB::raw('MAX(em) as em'))
+        ->groupBy('id_localizacion')
+        ->pluck('em', 'id_localizacion');
+
+    $base = DB::table('mediciones_iluminacion')
+        ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$year])
+        ->orderBy('departamento')
+        ->orderBy('id_localizacion')
+        ->orderBy('punto_medicion');
+
+    $departamentos = (clone $base)->pluck('departamento')->filter()->unique()->values();
+
+    $copyRow = function(Worksheet $sheet, int $srcRow, int $dstRow, string $rangeCols) {
+        [$colStart, $colEnd] = explode(':', $rangeCols);
+        for ($col = $colStart; $col <= $colEnd; $col++) {
+            $src = $col.$srcRow; $dst = $col.$dstRow;
+            $cell = $sheet->getCell($src);
+            $sheet->setCellValueExplicit($dst, $cell->getValue(), $cell->getDataType());
+            $sheet->duplicateStyle($sheet->getStyle($src), $dst);
+            $sheet->getColumnDimension($col)->setWidth($sheet->getColumnDimension($col)->getWidth());
+        }
+        $sheet->getRowDimension($dstRow)->setRowHeight($sheet->getRowDimension($srcRow)->getRowHeight());
+
+        foreach ($sheet->getMergeCells() as $merge) {
+            [$mStart, $mEnd] = explode(':', $merge);
+            if (preg_match('/([A-Z]+)(\d+)/', $mStart, $m1) && (int)$m1[2] === $srcRow &&
+                preg_match('/([A-Z]+)(\d+)/', $mEnd, $m2)) {
+                $sheet->mergeCells($m1[1].$dstRow.':'.$m2[1].$dstRow);
+            }
+        }
+    };
+
+    foreach ($departamentos as $dep) {
+
+        // ✅ usar helper como método y nombre correcto de variable
+        $sheet = $this->ensureSheet($spreadsheet, $dep, $tplSheet);
+
+        $rows = (clone $base)
+            ->where('departamento', $dep)   // <-- $dep (no $dept)
+            ->select(
+                'departamento',
+                'nombre_observador',
+                'instrumento',
+                'serie',
+                'marca',
+                'id_localizacion',
+                'punto_medicion',
+                'promedio',
+                'limites_aceptables',
+                'acciones_correctivas',
+                'fecha_realizacion_inicio',
+                'fecha_realizacion_final'
+            )
+            ->get();
+
+        if ($rows->isEmpty()) { continue; }
+
+        // ---- Encabezado (C4.., B8, D8)
+        $minIni = $rows->min('fecha_realizacion_inicio');
+        $maxFin = $rows->max('fecha_realizacion_final');
+
+        $sheet->setCellValue('C4', $dep ?? '');
+        $sheet->setCellValue('C5', (string) ($rows->first()->nombre_observador ?? ''));
+
+        $rangoFechas = '';
+        if ($minIni || $maxFin) {
+            $ini = $minIni ? (new \DateTime($minIni))->format('d/m/Y') : '';
+            $fin = $maxFin ? (new \DateTime($maxFin))->format('d/m/Y') : '';
+            $rangoFechas = trim($ini.' a '.$fin);
+        }
+        $sheet->setCellValue('C6', $rangoFechas);
+
+        $sheet->setCellValue('C7', (string) ($rows->first()->instrumento ?? ''));
+        $sheet->setCellValue('B8', (string) ($rows->first()->serie ?? ''));
+        $sheet->setCellValue('D8', (string) ($rows->first()->marca ?? ''));
+
+        // ---- Limpia cuerpo
+        for ($r = $firstData; $r <= $firstData + $perPage + 2000; $r++) {
+            foreach (['A','B','C','D','E','F'] as $c) { $sheet->setCellValue($c.$r, ''); }
+        }
+
+        // ---- Datos paginados
+        $i = 0;
+        foreach ($rows as $rec) {
+            $page      = intdiv($i, $perPage);
+            $indexInPg = $i % $perPage;
+            $baseRow   = $headerRow + $page * ($perPage + 1);
+            $hdrRow    = $baseRow;
+            $dstRow    = $baseRow + 1 + $indexInPg;
+
+            if ($indexInPg === 0 && $page > 0) {
+                $copyRow($sheet, $headerRow, $hdrRow, $colsRange);
+            }
+            $copyRow($sheet, $firstData, $dstRow, $colsRange);
+
+            $lim = $rec->limites_aceptables;
+            if ($lim === null) {
+                $lim = $emByLoc[$rec->id_localizacion] ?? null;
+            }
+
+            $sheet->setCellValue($colNo   . $dstRow, $indexInPg + 1);
+            $sheet->setCellValue($colZona . $dstRow, (string) ($rec->punto_medicion ?? ''));
+            $sheet->setCellValue($colProm . $dstRow, is_null($rec->promedio) ? '' : (float)$rec->promedio);
+            $sheet->setCellValue($colLim  . $dstRow, is_null($lim) ? '' : (float)$lim);
+            // $sheet->setCellValue($colAcc  . $dstRow, (string) ($rec->acciones_correctivas ?? ''));
+
+            $i++;
+        }
+    }
+
+    // ❌ Quita la hoja "Plantilla" si quedó en el libro
+    if ($tpl = $spreadsheet->getSheetByName('Plantilla')) {
+        $idx = $spreadsheet->getIndex($tpl);
+        $spreadsheet->removeSheetByIndex($idx);
+    }
+
+    while (ob_get_level()) { ob_end_clean(); }
+    $filename = "reporte_iluminacion_departamentos_{$year}.xlsx";
+
+    return response()->streamDownload(function () use ($spreadsheet) {
+        $writer = new Xlsx($spreadsheet);
+        $writer->save('php://output');
+    }, $filename, [
+        'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
+        'Pragma'                    => 'no-cache',
+        'Expires'                   => '0',
+        'Content-Transfer-Encoding' => 'binary',
+    ]);
+}
+
+
 
 }

@@ -24,7 +24,29 @@
         </li>
     </ol>
     </nav>
-    <br>    
+    <br>   
+    
+    @if (session('error'))
+  <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+    {{ session('error') }}
+  </div>
+@endif
+
+@if (session('success'))
+  <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-green-800">
+    {{ session('success') }}
+  </div>
+@endif
+
+@if ($errors->any())
+  <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+    <ul class="list-disc ms-5">
+      @foreach ($errors->all() as $e)
+        <li>{{ $e }}</li>
+      @endforeach
+    </ul>
+  </div>
+@endif
 
 <div class="flex items-center justify-between w-full mb-4">
     <!-- Botones a la izquierda -->

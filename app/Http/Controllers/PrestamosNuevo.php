@@ -11,6 +11,20 @@ class PrestamosNuevo extends Controller
     public function storeprestamo(Request $request)
     {
         $numPrestamo = $request->input('num_prestamo') ?? $request->input('numero_prestamo');
+
+        // Normaliza y valida número de préstamo
+        $numPrestamo = trim((string)($request->input('num_prestamo') ?? $request->input('numero_prestamo')));
+        if ($numPrestamo === '') {
+            return back()->with('error', 'Debes ingresar el número de préstamo.')->withInput();
+        }
+
+        $yaExiste = DB::table('prestamo')->where('num_prestamo', $numPrestamo)->exists();
+        if ($yaExiste) {
+            return back()
+                ->with('error', "El número de préstamo '{$numPrestamo}' ya existe. Usa otro.")
+                ->withInput();
+        }
+
         $idEmpleado  = $request->input('id_empleado');
 
         // ===== Montos principales con decimales =====
@@ -596,7 +610,6 @@ class PrestamosNuevo extends Controller
             ]);
     });
 }
-
 
     // ====== Helper: normaliza strings tipo "1.234,56", "L. 2,075.83", "$1,200" ======
     private function parseMoney($v): float

@@ -131,6 +131,11 @@
                             </a>
                         </li>
                         <li>
+                            <a href="/capacitaciones/requeridos" class="{{ request()->is('#*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }}">
+                                Necesidades de Capacitaciones
+                            </a>
+                        </li>
+                        <li>
                             <a href="/asistencia" class="{{ request()->is('asistencia*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }}">
                                 Registro de Asistencia
                             </a>

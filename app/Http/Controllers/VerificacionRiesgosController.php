@@ -10,6 +10,7 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use Illuminate\Support\Facades\Schema;
 
 class VerificacionRiesgosController extends Controller
 {
@@ -266,221 +267,377 @@ class VerificacionRiesgosController extends Controller
     }
 
     public function exportPlanAccion(Request $request)
-    {
-        // Carga la plantilla
-        $tplPath = storage_path('app/public/formato_plan_de_accion.xlsx');
-        if (!is_file($tplPath)) {
-            return back()->with('error', 'No se encontró la plantilla formato_plan_de_accion.xlsx');
-        }
+{
 
-        try {
-            $spreadsheet = IOFactory::load($tplPath);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo abrir la plantilla: '.$e->getMessage());
-        }
+    // ========= 0) Parámetros y plantilla =========
+    $anio = intval($request->input('anio', date('Y')));
 
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Normalizador similar al de Evaluación de Riesgos
-        $norm = function (string $s): string {
-            $s = trim(mb_strtoupper($s, 'UTF-8'));
-            $s = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
-            $s = preg_replace('/[^A-Z0-9 ]+/', ' ', $s);
-            $s = preg_replace('/\s+/', ' ', $s);
-            return str_replace(' ', '', $s);
-        };
-
-        // Catálogo de riesgos de BD -> mapa normalizado => id_riesgo
-        $riesgosDb = DB::table('riesgo')->select('id_riesgo','nombre_riesgo')->get();
-        $mapRiesgoId = [];
-        foreach ($riesgosDb as $r) {
-            $k = $norm((string)($r->nombre_riesgo ?? ''));
-            if ($k !== '') $mapRiesgoId[$k] = (int)$r->id_riesgo;
-        }
-        $riesgoKeys = array_keys($mapRiesgoId);
-
-        // Helper de coincidencia flexible (insensible a mayúsculas/acentos/espacios) con fallback por distancia
-        $findClosestId = function (string $needle) use ($mapRiesgoId, $riesgoKeys) {
-            if (isset($mapRiesgoId[$needle])) return $mapRiesgoId[$needle];
-            // 1) Inclusión
-            foreach ($riesgoKeys as $k) {
-                if (str_contains($k, $needle) || str_contains($needle, $k)) {
-                    return $mapRiesgoId[$k];
-                }
-            }
-            // 2) Distancia Levenshtein normalizada
-            $bestK = null; $bestD = PHP_INT_MAX; $bestLen = 0;
-            foreach ($riesgoKeys as $k) {
-                $d = levenshtein($needle, $k);
-                if ($d < $bestD) { $bestD = $d; $bestK = $k; $bestLen = max(strlen($needle), strlen($k)); }
-            }
-            if ($bestK !== null) {
-                // Umbral: 25% del largo o 3 como mínimo
-                $thr = max(3, (int)ceil($bestLen * 0.25));
-                if ($bestD <= $thr) return $mapRiesgoId[$bestK];
-            }
-            return null;
-        };
-
-        // Lista de puestos
-        $puestos = DB::table('puesto_trabajo_matriz as ptm')
-            ->where(function ($q) { $q->whereNull('ptm.estado')->orWhere('ptm.estado','!=',0); })
-            ->select('ptm.id_puesto_trabajo_matriz as id','ptm.puesto_trabajo_matriz as nombre')
-            ->orderBy('ptm.puesto_trabajo_matriz')
-            ->get();
-
-        // Pre-cálculo: puestos con riesgo por id_riesgo (valor = Sí)
-        $esSiSql = "LOWER(TRIM(rv.valor)) IN ('si','s','sí','s\xC3\xAD','1')"; // incluye variantes
-        $puestosPorRiesgo = [];
-        $rvRows = DB::table('riesgo_valor as rv')
-            ->join('puesto_trabajo_matriz as ptm','ptm.id_puesto_trabajo_matriz','=','rv.id_puesto_trabajo_matriz')
-            ->whereRaw($esSiSql)
-            ->select('rv.id_riesgo','rv.id_puesto_trabajo_matriz','ptm.puesto_trabajo_matriz as nombre')
-            ->get();
-        foreach ($rvRows as $row) {
-            $rid = (int)$row->id_riesgo;
-            if (!isset($puestosPorRiesgo[$rid])) $puestosPorRiesgo[$rid] = [];
-            $puestosPorRiesgo[$rid][$row->id_puesto_trabajo_matriz] = (string)$row->nombre;
-        }
-
-        // Pre-cálculo: puestos con químicos (existe asignación en quimico_puesto)
-        $puestosQuimico = DB::table('quimico_puesto as qp')
-            ->join('puesto_trabajo_matriz as ptm','ptm.id_puesto_trabajo_matriz','=','qp.id_puesto_trabajo_matriz')
-            ->whereNotNull('qp.id_quimico')
-            ->groupBy('qp.id_puesto_trabajo_matriz','ptm.puesto_trabajo_matriz')
-            ->orderBy('ptm.puesto_trabajo_matriz')
-            ->pluck('ptm.puesto_trabajo_matriz','qp.id_puesto_trabajo_matriz')
-            ->toArray();
-
-        // Pre-cálculo: Medidas por Riesgo (EPP, Capacitaciones, Señalización, Otras)
-        $medidasPorRiesgo = [];
-        $mrpRows = DB::table('medidas_riesgo_puesto as mrp')
-            ->leftJoin('epp as epp', 'epp.id_epp', '=', 'mrp.id_epp')
-            ->leftJoin('capacitacion as c', 'c.id_capacitacion', '=', 'mrp.id_capacitacion')
-            ->leftJoin('senalizacion as s', 's.id_senalizacion', '=', 'mrp.id_senalizacion')
-            ->leftJoin('otras_medidas as o', 'o.id_otras_medidas', '=', 'mrp.id_otras_medidas')
-            ->select('mrp.id_riesgo', 'epp.equipo as epp', 'c.capacitacion as cap', 's.senalizacion as senal', 'o.otras_medidas as otras')
-            ->get();
-        foreach ($mrpRows as $r) {
-            $rid = (int)$r->id_riesgo;
-            if (!isset($medidasPorRiesgo[$rid])) {
-                $medidasPorRiesgo[$rid] = [ 'epp'=>[], 'cap'=>[], 'senal'=>[], 'otras'=>[] ];
-            }
-            $val = function($x){ $x = trim((string)$x); return $x !== '' ? $x : null; };
-            if (($v=$val($r->epp))   !== null) $medidasPorRiesgo[$rid]['epp'][$v]   = true;
-            if (($v=$val($r->cap))   !== null) $medidasPorRiesgo[$rid]['cap'][$v]   = true;
-            if (($v=$val($r->senal)) !== null) $medidasPorRiesgo[$rid]['senal'][$v] = true;
-            if (($v=$val($r->otras)) !== null) $medidasPorRiesgo[$rid]['otras'][$v] = true;
-        }
-
-        // Recorrer columna B desde fila 7 en adelante y escribir puestos en columna C
-        $colRiesgo = 'B';
-        $colPuestos = 'C';
-        $row = 7;
-        $maxEmpty = 30; // tolerancia de filas vacías
-        $emptyStreak = 0;
-        $rowLimit = 1000; // límite de seguridad
-
-        // Ajustes de estilo: ancho de columna C y ajuste de texto con saltos de línea
-        try {
-            $sheet->getColumnDimension($colPuestos)->setWidth(80);
-            $sheet->getStyle($colPuestos.'7:'.$colPuestos.$rowLimit)->getAlignment()->setWrapText(true);
-            $sheet->getStyle($colPuestos.'7:'.$colPuestos.$rowLimit)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
-            // Columna de Acciones Requeridas (E)
-            $sheet->getColumnDimension('E')->setWidth(70);
-            $sheet->getStyle('E7:E'.$rowLimit)->getAlignment()->setWrapText(true);
-            $sheet->getStyle('E7:E'.$rowLimit)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
-        } catch (\Throwable $e) { /* continuar aunque falle el estilo */ }
-
-        while ($row <= $rowLimit) {
-            $name = (string)($sheet->getCell($colRiesgo.$row)->getValue());
-            $nameTrim = trim($name);
-            if ($nameTrim === '') {
-                $emptyStreak++;
-                if ($emptyStreak >= $maxEmpty) break;
-                $row++;
-                continue;
-            }
-            $emptyStreak = 0;
-
-            $key = $norm($nameTrim);
-            $puestosLista = [];
-            $rid = null;
-
-            // Caso especial: "QUIMICOS" (no está en la tabla riesgo)
-            if ($key === 'QUIMICOS' || str_contains($key, 'QUIMIC')) {
-                $puestosLista = array_values($puestosQuimico); // ya vienen ordenados por nombre
-            } else {
-                // Buscar id_riesgo por nombre normalizado (con coincidencia flexible)
-                $rid = $findClosestId($key);
-                if ($rid !== null && isset($puestosPorRiesgo[$rid])) {
-                    $puestosLista = array_values($puestosPorRiesgo[$rid]);
-                    sort($puestosLista, SORT_NATURAL|SORT_FLAG_CASE);
-                } else {
-                    $puestosLista = [];
-                }
-            }
-
-            // Escribir en columna C con contador y saltos de línea
-            $cnt = count($puestosLista);
-            if ($cnt > 0) {
-                $text = $cnt.' puestos:'."\n".implode("\n", $puestosLista);
-            } else {
-                $text = '';
-            }
-            $cell = $colPuestos.$row;
-            $sheet->setCellValue($cell, $text);
-            try {
-                $sheet->getStyle($cell)->getAlignment()->setWrapText(true);
-                $sheet->getStyle($cell)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
-                // Dejar altura auto (Excel ajusta al abrir). Si el motor lo permite:
-                // $sheet->getRowDimension($row)->setRowHeight(-1);
-            } catch (\Throwable $e) { /* noop */ }
-
-            // Acciones requeridas en columna E (EPP, CAPACITACIÓN, SEÑALIZACIÓN, OTRAS)
-            if (isset($rid) && $rid !== null && isset($medidasPorRiesgo[$rid])) {
-                $mm = $medidasPorRiesgo[$rid];
-                $join = function($arr){ $keys = array_keys($arr); sort($keys, SORT_NATURAL|SORT_FLAG_CASE); return implode(', ', $keys); };
-                $txtEpp   = $join($mm['epp']);
-                $txtCap   = $join($mm['cap']);
-                $txtSenal = $join($mm['senal']);
-                $txtOtras = $join($mm['otras']);
-                $sheet->setCellValue('E'.$row,     $txtEpp);
-                $sheet->setCellValue('E'.($row+1), $txtCap);
-                $sheet->setCellValue('E'.($row+2), $txtSenal);
-                $sheet->setCellValue('E'.($row+3), $txtOtras);
-            } else {
-                // Limpiar si no hay medidas
-                $sheet->setCellValue('E'.$row,     '');
-                $sheet->setCellValue('E'.($row+1), '');
-                $sheet->setCellValue('E'.($row+2), '');
-                $sheet->setCellValue('E'.($row+3), '');
-            }
-
-            $row++;
-        }
-
-        // Descargar
-        $filename = 'plan_accion_control_riesgos_'.date('Ymd_His').'.xlsx';
-        try {
-            $tmp = storage_path('app/'.uniqid('plan_accion_', true).'.xlsx');
-            $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
-            $writer->save($tmp);
-            if (!is_file($tmp) || filesize($tmp) < 1000) { $writer->save($tmp); }
-            while (ob_get_level() > 0) { @ob_end_clean(); }
-            $spreadsheet->disconnectWorksheets();
-            unset($spreadsheet);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo generar el archivo de Excel: '.$e->getMessage());
-        }
-
-        return response()->download($tmp, $filename, [
-            'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
-            'Pragma'                    => 'no-cache',
-            'Content-Transfer-Encoding' => 'binary',
-        ])->deleteFileAfterSend(true);
+    $tplPath = storage_path('app/public/formato_plan_de_accion.xlsx');
+    if (!is_file($tplPath)) {
+        return back()->with('error', 'No se encontró la plantilla formato_plan_de_accion.xlsx');
     }
+
+    try { $spreadsheet = IOFactory::load($tplPath); }
+    catch (\Throwable $e) {
+        return back()->with('error', 'No se pudo abrir la plantilla: '.$e->getMessage());
+    }
+    $sheet = $spreadsheet->getActiveSheet();
+
+    // ========= 1) Normalizador y catálogo de riesgos =========
+    $norm = function (string $s): string {
+        $s = trim(mb_strtoupper($s, 'UTF-8'));
+        $s = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s) ?: $s;
+        $s = preg_replace('/[^A-Z0-9 ]+/', ' ', $s);
+        $s = preg_replace('/\s+/', ' ', $s);
+        return str_replace(' ', '', $s);
+    };
+
+    $riesgosDb = DB::table('riesgo')->select('id_riesgo','nombre_riesgo')->get();
+    $mapRiesgoId = [];
+    foreach ($riesgosDb as $r) {
+        $k = $norm((string)($r->nombre_riesgo ?? ''));
+        if ($k !== '') $mapRiesgoId[$k] = (int)$r->id_riesgo;
+    }
+    $riesgoKeys = array_keys($mapRiesgoId);
+
+    $findClosestId = function (string $needle) use ($mapRiesgoId, $riesgoKeys) {
+        if (isset($mapRiesgoId[$needle])) return $mapRiesgoId[$needle];
+        foreach ($riesgoKeys as $k) {
+            if (str_contains($k, $needle) || str_contains($needle, $k)) return $mapRiesgoId[$k];
+        }
+        $bestK=null; $bestD=PHP_INT_MAX; $bestLen=0;
+        foreach ($riesgoKeys as $k) {
+            $d = levenshtein($needle, $k);
+            if ($d < $bestD) { $bestD = $d; $bestK = $k; $bestLen = max(strlen($needle), strlen($k)); }
+        }
+        if ($bestK !== null) {
+            $thr = max(3, (int)ceil($bestLen * 0.25));
+            if ($bestD <= $thr) return $mapRiesgoId[$bestK];
+        }
+        return null;
+    };
+
+    // ========= 2) Puestos y “sí” por riesgo =========
+    $puestos = DB::table('puesto_trabajo_matriz as ptm')
+        ->where(function ($q) { $q->whereNull('ptm.estado')->orWhere('ptm.estado','!=',0); })
+        ->select('ptm.id_puesto_trabajo_matriz as id','ptm.puesto_trabajo_matriz as nombre')
+        ->orderBy('ptm.puesto_trabajo_matriz')
+        ->get();
+
+    $esSiSql = "LOWER(TRIM(rv.valor)) IN ('si','s','sí','s\xC3\xAD','1')";
+    $puestosPorRiesgo = [];
+    $rvRows = DB::table('riesgo_valor as rv')
+        ->join('puesto_trabajo_matriz as ptm','ptm.id_puesto_trabajo_matriz','=','rv.id_puesto_trabajo_matriz')
+        ->whereRaw($esSiSql)
+        ->select('rv.id_riesgo','rv.id_puesto_trabajo_matriz','ptm.puesto_trabajo_matriz as nombre')
+        ->get();
+    foreach ($rvRows as $row) {
+        $rid = (int)$row->id_riesgo;
+        if (!isset($puestosPorRiesgo[$rid])) $puestosPorRiesgo[$rid] = [];
+        $puestosPorRiesgo[$rid][$row->id_puesto_trabajo_matriz] = (string)$row->nombre;
+    }
+
+    $puestosQuimico = DB::table('quimico_puesto as qp')
+        ->join('puesto_trabajo_matriz as ptm','ptm.id_puesto_trabajo_matriz','=','qp.id_puesto_trabajo_matriz')
+        ->whereNotNull('qp.id_quimico')
+        ->groupBy('qp.id_puesto_trabajo_matriz','ptm.puesto_trabajo_matriz')
+        ->orderBy('ptm.puesto_trabajo_matriz')
+        ->pluck('ptm.puesto_trabajo_matriz','qp.id_puesto_trabajo_matriz')
+        ->toArray();
+
+    // ========= 3) Medidas por riesgo (incluye IDs para buscar fechas) =========
+    $medidasPorRiesgo = [];
+    $mrpRows = DB::table('medidas_riesgo_puesto as mrp')
+        ->leftJoin('epp as epp', 'epp.id_epp', '=', 'mrp.id_epp')
+        ->leftJoin('capacitacion as c', 'c.id_capacitacion', '=', 'mrp.id_capacitacion')
+        ->leftJoin('senalizacion as s', 's.id_senalizacion', '=', 'mrp.id_senalizacion')
+        ->leftJoin('otras_medidas as o', 'o.id_otras_medidas', '=', 'mrp.id_otras_medidas')
+        ->select(
+            'mrp.id_riesgo',
+            'mrp.id_epp', 'epp.equipo as epp',
+            'mrp.id_capacitacion', 'c.capacitacion as cap',
+            'mrp.id_senalizacion', 's.senalizacion as senal',
+            'mrp.id_otras_medidas', 'o.otras_medidas as otras'
+        )
+        ->get();
+
+    foreach ($mrpRows as $r) {
+        $rid = (int)$r->id_riesgo;
+        if (!isset($medidasPorRiesgo[$rid])) {
+            $medidasPorRiesgo[$rid] = [
+                'epp'=>[], 'cap'=>[], 'senal'=>[], 'otras'=>[],
+                'epp_ids'=>[], 'cap_ids'=>[]
+            ];
+        }
+        $val = function($x){ $x = trim((string)$x); return $x !== '' ? $x : null; };
+        if (($v=$val($r->epp))   !== null) { $medidasPorRiesgo[$rid]['epp'][$v] = true; $medidasPorRiesgo[$rid]['epp_ids'][$v] = (int)$r->id_epp; }
+        if (($v=$val($r->cap))   !== null) { $medidasPorRiesgo[$rid]['cap'][$v] = true; $medidasPorRiesgo[$rid]['cap_ids'][$v] = (int)$r->id_capacitacion; }
+        if (($v=$val($r->senal)) !== null) { $medidasPorRiesgo[$rid]['senal'][$v] = true; }
+        if (($v=$val($r->otras)) !== null) { $medidasPorRiesgo[$rid]['otras'][$v] = true; }
+    }
+
+    // ========= 4) Helpers para fechas (robusto) =========
+
+// Tablas candidatas (añadí varios alias comunes)
+$eppDateTables = [
+    ['table' => 'asignacion_epp',        'id' => 'id_epp'],
+    ['table' => 'epp_entrega',           'id' => 'id_epp'],
+    ['table' => 'empleado_epp',          'id' => 'id_epp'],
+    ['table' => 'asignaciones_epp',      'id' => 'id_epp'],
+    ['table' => 'epp_empleado',          'id' => 'id_epp'],
+];
+
+$capDateTables = [
+    ['table' => 'asistencia_capacitacion','id' => 'id_capacitacion'],
+    ['table' => 'capacitacion_empleado',  'id' => 'id_capacitacion'],
+    ['table' => 'empleado_capacitacion',  'id' => 'id_capacitacion'],
+    ['table' => 'capacitacion',           'id' => 'id_capacitacion'],
+    ['table' => 'capacitacion_asistencia','id' => 'id_capacitacion'],
+    ['table' => 'capacitacion_detalle',   'id' => 'id_capacitacion'],
+];
+
+// nombres típicos (preferencias) y patrones
+$priorityNames = [
+    'fecha_entrega','fecha_asistencia','fecha_capacitacion','fecha_realizacion',
+    'fecha_programada','fecha_evento','fecha','fecha_registro','fecha_emision',
+    'fecha_entregado','f_entrega'
+];
+
+$dbName = DB::getDatabaseName();
+
+/**
+ * Devuelve TODAS las columnas de tipo fecha de una tabla, priorizadas.
+ */
+$detectDateCols = function (string $table) use ($dbName, $priorityNames) {
+    if (!Schema::hasTable($table)) return [];
+
+    // Traer columnas y tipos desde information_schema
+    $rows = DB::select("
+        SELECT COLUMN_NAME as col, DATA_TYPE as t
+        FROM information_schema.columns
+        WHERE table_schema = ? AND table_name = ?
+          AND DATA_TYPE IN ('date','datetime','timestamp')
+    ", [$dbName, $table]);
+
+    if (!$rows) return [];
+
+    $cols = array_map(fn($r) => $r->col, $rows);
+
+    // Priorizar nombres típicos primero
+    $score = [];
+    foreach ($cols as $c) {
+        $cLower = mb_strtolower($c, 'UTF-8');
+        $idx = array_search($cLower, $priorityNames, true);
+        $score[$c] = ($idx === false) ? 999 : $idx; // menor es más prioritario
+        // pequeño bonus si empieza por 'fecha'
+        if (str_starts_with($cLower, 'fecha')) $score[$c] -= 0.5;
+    }
+
+    // Orden por score, luego alfabético
+    usort($cols, function($a,$b) use ($score){
+        if ($score[$a] == $score[$b]) return strcmp($a,$b);
+        return ($score[$a] < $score[$b]) ? -1 : 1;
+    });
+
+    return $cols; // todas las columnas relevantes, ya priorizadas
+};
+
+/**
+ * Busca fechas por ID en TODAS las columnas detectadas de cada tabla candidata.
+ * Retorna: id => [ 'Y-m-d', ... ]
+ */
+$fetchDatesMap = function(array $ids, array $tableSpecs) use ($anio, $detectDateCols) {
+    $out = [];
+    $ids = array_values(array_filter(array_map('intval', $ids), fn($v)=>$v>0));
+    if (empty($ids)) return $out;
+
+    foreach ($tableSpecs as $spec) {
+        $table = $spec['table']; 
+        $idField = $spec['id'];
+
+        if (!Schema::hasTable($table) || !Schema::hasColumn($table, $idField)) continue;
+
+        $dateCols = $detectDateCols($table);
+        if (empty($dateCols)) continue;
+
+        foreach ($dateCols as $dateCol) {
+            // SELECT seguro (usa bindings) y proyecta DATE()
+            $rows = DB::table($table)
+                ->whereIn($idField, $ids)
+                ->whereYear($dateCol, $anio)
+                ->select([$idField.' as id', DB::raw("DATE(`{$dateCol}`) as d")])
+                ->get();
+
+            foreach ($rows as $r) {
+                $id = (int)$r->id;
+                if (!isset($out[$id])) $out[$id] = [];
+                if ($r->d) $out[$id][] = (string)$r->d;
+            }
+        }
+    }
+
+    // Unificar, ordenar y unique
+    foreach ($out as $id => $arr) {
+        $arr = array_unique(array_filter($arr));
+        sort($arr);
+        $out[$id] = $arr;
+    }
+    return $out;
+};
+
+$fmtDates = function(array $dates) {
+    $dates = array_values($dates);
+    $max = 4;
+    $shown = array_slice($dates, 0, $max);
+    $shown = array_map(fn($d)=>\Carbon\Carbon::parse($d)->format('d/m/Y'), $shown);
+    if (count($dates) > $max) $shown[] = '+'.(count($dates)-$max).' más';
+    return implode(', ', $shown);
+};
+
+    // ========= 5) Estilos de columnas (incluye G) =========
+    $rowLimit = 1000;
+    try {
+        $sheet->getColumnDimension('C')->setWidth(80);
+        $sheet->getStyle('C7:C'.$rowLimit)->getAlignment()->setWrapText(true);
+        $sheet->getStyle('C7:C'.$rowLimit)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+
+        $sheet->getColumnDimension('E')->setWidth(70);
+        $sheet->getStyle('E7:E'.$rowLimit)->getAlignment()->setWrapText(true);
+        $sheet->getStyle('E7:E'.$rowLimit)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+
+        $sheet->getColumnDimension('G')->setWidth(45);
+        $sheet->getStyle('G7:G'.$rowLimit)->getAlignment()->setWrapText(true);
+        $sheet->getStyle('G7:G'.$rowLimit)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+    } catch (\Throwable $e) {}
+
+    // ========= 6) Relleno por riesgo (B=>riesgo, C=>puestos, E=>medidas, G=>fechas EPP/CAP) =========
+    $colRiesgo  = 'B';
+    $colPuestos = 'C';
+    $row        = 7;
+    $maxEmpty   = 30;
+    $emptyStreak= 0;
+
+    while ($row <= $rowLimit) {
+        $name = (string)($sheet->getCell($colRiesgo.$row)->getValue());
+        $nameTrim = trim($name);
+        if ($nameTrim === '') {
+            $emptyStreak++;
+            if ($emptyStreak >= $maxEmpty) break;
+            $row++;
+            continue;
+        }
+        $emptyStreak = 0;
+
+        $key = $norm($nameTrim);
+        $puestosLista = [];
+        $rid = null;
+
+        if ($key === 'QUIMICOS' || str_contains($key, 'QUIMIC')) {
+            $puestosLista = array_values($puestosQuimico);
+        } else {
+            $rid = $findClosestId($key);
+            if ($rid !== null && isset($puestosPorRiesgo[$rid])) {
+                $puestosLista = array_values($puestosPorRiesgo[$rid]);
+                sort($puestosLista, SORT_NATURAL|SORT_FLAG_CASE);
+            }
+        }
+
+        $sheet->setCellValue($colPuestos.$row, count($puestosLista) > 0
+            ? (count($puestosLista).' puestos:'."\n".implode("\n", $puestosLista))
+            : '');
+
+        // --- Medidas en E ---
+        if (isset($rid) && $rid !== null && isset($medidasPorRiesgo[$rid])) {
+            $mm = $medidasPorRiesgo[$rid];
+            $joinKeys = function($arr){ $keys = array_keys($arr); sort($keys, SORT_NATURAL|SORT_FLAG_CASE); return implode(', ', $keys); };
+
+            $txtEpp   = $joinKeys($mm['epp']);
+            $txtCap   = $joinKeys($mm['cap']);
+            $txtSenal = $joinKeys($mm['senal']);
+            $txtOtras = $joinKeys($mm['otras']);
+
+            $sheet->setCellValue('E'.$row,     $txtEpp);
+            $sheet->setCellValue('E'.($row+1), $txtCap);
+            $sheet->setCellValue('E'.($row+2), $txtSenal);
+            $sheet->setCellValue('E'.($row+3), $txtOtras);
+
+            // --- Fechas en G (solo para EPP y CAP) ---
+            // EPP
+            $eppIds = array_values(array_filter(array_map('intval', array_values($mm['epp_ids'])), fn($v)=>$v>0));
+            $eppDatesMap = $fetchDatesMap($eppIds, $eppDateTables); // id_epp => [Y-m-d...]
+            $gLinesEpp = [];
+            // mostramos por nombre en el mismo orden alfabético
+            $eppNames = array_keys($mm['epp']); sort($eppNames, SORT_NATURAL|SORT_FLAG_CASE);
+            foreach ($eppNames as $nm) {
+                $id = $mm['epp_ids'][$nm] ?? 0;
+                $dates = $id ? ($eppDatesMap[$id] ?? []) : [];
+                if (!empty($dates)) {
+                    $gLinesEpp[] = $nm.': '.$fmtDates($dates);
+                }
+            }
+            $sheet->setCellValue('G'.$row, implode("\n", $gLinesEpp));
+
+            // CAPACITACIÓN
+            $capIds = array_values(array_filter(array_map('intval', array_values($mm['cap_ids'])), fn($v)=>$v>0));
+            $capDatesMap = $fetchDatesMap($capIds, $capDateTables); // id_capacitacion => [Y-m-d...]
+            $gLinesCap = [];
+            $capNames = array_keys($mm['cap']); sort($capNames, SORT_NATURAL|SORT_FLAG_CASE);
+            foreach ($capNames as $nm) {
+                $id = $mm['cap_ids'][$nm] ?? 0;
+                $dates = $id ? ($capDatesMap[$id] ?? []) : [];
+                if (!empty($dates)) {
+                    $gLinesCap[] = $nm.': '.$fmtDates($dates);
+                }
+            }
+            $sheet->setCellValue('G'.($row+1), implode("\n", $gLinesCap));
+        } else {
+            // limpiar si no hay medidas
+            $sheet->setCellValue('E'.$row,     '');
+            $sheet->setCellValue('E'.($row+1), '');
+            $sheet->setCellValue('E'.($row+2), '');
+            $sheet->setCellValue('E'.($row+3), '');
+            $sheet->setCellValue('G'.$row,     '');
+            $sheet->setCellValue('G'.($row+1), '');
+        }
+
+        // Ajustes wrap/vertical por fila base
+        foreach (['C','E','G'] as $col) {
+            try {
+                $sheet->getStyle($col.$row)->getAlignment()->setWrapText(true);
+                $sheet->getStyle($col.$row)->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            } catch (\Throwable $e) {}
+        }
+        foreach (['E','G'] as $col) {
+            try {
+                $sheet->getStyle($col.($row+1))->getAlignment()->setWrapText(true);
+                $sheet->getStyle($col.($row+1))->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_TOP);
+            } catch (\Throwable $e) {}
+        }
+
+        $row++;
+    }
+
+    // ========= 7) Descargar =========
+    $filename = 'plan_accion_control_riesgos_'.$anio.'_'.date('Ymd_His').'.xlsx';
+    try {
+        $tmp = storage_path('app/'.uniqid('plan_accion_', true).'.xlsx');
+        $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
+        $writer->save($tmp);
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+    } catch (\Throwable $e) {
+        return back()->with('error', 'No se pudo generar el archivo de Excel: '.$e->getMessage());
+    }
+
+    return response()->download($tmp, $filename, [
+        'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
+        'Pragma'                    => 'no-cache',
+        'Content-Transfer-Encoding' => 'binary',
+    ])->deleteFileAfterSend(true);
+}
+
 
     public function export(Request $request)
     {

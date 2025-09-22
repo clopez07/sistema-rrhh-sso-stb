@@ -413,8 +413,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/epp-obligatorios/export', [EppObligatoriosConsultaController::class, 'export'])
     ->name('riesgos.epp.obligatorios.export');
     
+    Route::get('/capacitaciones/requeridos', [\App\Http\Controllers\CapacitacionesRequeridasController::class, 'index'])
+    ->name('capacitaciones.requeridos');
 
-    // routes/web.php
     Route::get('/medidas/{id_riesgo}/{id_area}/edit', [MedidasRiesgoPuestoController::class, 'edit'])
         ->name('medidas.edit');
 
@@ -424,7 +425,6 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/puestos-epp', [MatrizPuestosEppController::class, 'index'])->name('epp.puestos_epp');
     Route::post('/puestos-epp.store', [MatrizPuestosEppController::class, 'store'])->name('epp.puestos_epp.store');
 
-    // Qu�micos por Puesto (consulta)
     Route::get('/quimicos-por-puesto', [\App\Http\Controllers\QuimicosPorPuestoController::class, 'index'])
         ->name('riesgos.quimicos.puesto');
 
@@ -436,7 +436,6 @@ Route::middleware(['auth'])->group(function () {
     [MatrizPuestosCapacitacionController::class, 'store'])
     ->name('capacitaciones.puestoscapacitacion.store');
 
-    // Comparaci�n Puestos (CRUD)
     Route::get('/comparacion-puestos', [ComparacionPuestosController::class, 'index'])->name('comparacion_puestos.index');
     Route::post('/comparacion-puestos', [ComparacionPuestosController::class, 'store'])->name('comparacion_puestos.store');
     Route::put('/comparacion-puestos/{id}', [ComparacionPuestosController::class, 'update'])->name('comparacion_puestos.update');
@@ -554,6 +553,11 @@ Route::get('mediciones/export/ruido', [MedicionesController::class, 'exportRuido
 
     Route::get('/prestamos/empleados/export', [\App\Http\Controllers\Prestamos::class, 'exportEmpleadosPrestamo'])
     ->name('empleadosprestamo.export');
+
+    // routes/web.php
+Route::get('mediciones/export/iluminacion-plantilla', [MedicionesController::class, 'exportIluminacionDesdePlantilla'])
+    ->name('mediciones.export.iluminacion.plantilla');
+
 });
 
 

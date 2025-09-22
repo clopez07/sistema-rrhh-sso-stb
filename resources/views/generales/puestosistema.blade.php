@@ -163,10 +163,6 @@
             </div>
         </div>
     </form>
-    <a href="{{ route('comparacion_puestos.index') }}" class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 text-white px-4 py-2 shadow hover:bg-indigo-700">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path d="M9 2.25A2.25 2.25 0 006.75 4.5v15A2.25 2.25 0 009 21.75h6A2.25 2.25 0 0017.25 19.5v-15A2.25 2.25 0 0015 2.25H9zM7.5 6A.75.75 0 018.25 5.25h7.5a.75.75 0 010 1.5h-7.5A.75.75 0 017.5 6zm0 3.75a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM8.25 12a.75.75 0 000 1.5h7.5a.75.75 0 000-1.5h-7.5z"/></svg>
-        Comparación de Puestos Capacitación
-    </a>
 </div>
 
     <div class="relative overflow-x-auto shadow-md sm:rounded-lg" style="margin-top: 20px;">

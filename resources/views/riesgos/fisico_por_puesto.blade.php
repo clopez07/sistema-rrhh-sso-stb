@@ -43,10 +43,12 @@
   @if(!$puestoId)
     <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3">Selecciona un puesto para ver su esfuerzo físico asociado.</div>
   @else
+
+    {{-- ===== ESFUERZO FÍSICO (CARGAR/HALAR/EMPUJAR/SUJETAR) ===== --}}
     <div class="relative max-h-[70vh] overflow-auto border rounded-2xl shadow-sm table-scroll">
       <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
-      Esfuerzo Físico
-    </div>
+        Esfuerzo Físico
+      </div>
       <table class="min-w-full text-sm">
         <thead class="bg-indigo-600 text-white">
           <tr>
@@ -81,70 +83,88 @@
       </table>
     </div>
 
-  {{-- ===== ESFUERZO VISUAL ===== --}}
-  <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
-    <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
-      Esfuerzo Visual
+    {{-- ===== ESFUERZO VISUAL (ident_esfuerzo_visual) ===== --}}
+    <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
+      <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
+        Esfuerzo Visual
+      </div>
+      <table class="min-w-full text-sm">
+        <thead class="bg-indigo-600 text-white">
+          <tr>
+            <th class="p-3 text-left min-w-[240px]">Tipo de esfuerzo</th>
+            <th class="p-3 text-left min-w-[200px] border-l">Tiempo de exposición</th>
+          </tr>
+        </thead>
+        <tbody>
+          @forelse($visualRows as $v)
+            <tr class="odd:bg-white even:bg-gray-50">
+              <td class="p-3">{{ $v->tipo ?? '—' }}</td>
+              <td class="p-3 border-l">{{ $v->tiempo ?? '—' }}</td>
+            </tr>
+          @empty
+            <tr>
+              <td colspan="2" class="p-6 text-center text-gray-500">Sin registros de esfuerzo visual.</td>
+            </tr>
+          @endforelse
+        </tbody>
+      </table>
     </div>
-    <table class="min-w-full text-sm">
-      <thead class="bg-indigo-600 text-white">
-        <tr>
-          <th class="p-3 text-left min-w-[240px]">Tipo de esfuerzo</th>
-          <th class="p-3 text-left min-w-[200px] border-l">Tiempo de exposición</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr class="odd:bg-white even:bg-gray-50">
-          <td class="p-3">{{ $extra->tipo_esfuerzo_visual ?? '—' }}</td>
-          <td class="p-3 border-l">{{ $extra->tiempo_exposicion_visual ?? '—' }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  {{-- ===== EXPOSICIÓN A RUIDO ===== --}}
-  <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
-    <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
-      Exposición a Ruido
+    {{-- ===== EXPOSICIÓN A RUIDO (ident_exposicion_ruido) ===== --}}
+    <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
+      <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
+        Exposición a Ruido
+      </div>
+      <table class="min-w-full text-sm">
+        <thead class="bg-indigo-600 text-white">
+          <tr>
+            <th class="p-3 text-left min-w-[260px]">Descripción de Ruido</th>
+            <th class="p-3 text-left min-w-[200px] border-l">Duración de exposición</th>
+          </tr>
+        </thead>
+        <tbody>
+          @forelse($ruidoRows as $r)
+            <tr class="odd:bg-white even:bg-gray-50">
+              <td class="p-3">{{ $r->descripcion ?? '—' }}</td>
+              <td class="p-3 border-l">{{ $r->duracion ?? '—' }}</td>
+            </tr>
+          @empty
+            <tr>
+              <td colspan="2" class="p-6 text-center text-gray-500">Sin registros de exposición a ruido.</td>
+            </tr>
+          @endforelse
+        </tbody>
+      </table>
     </div>
-    <table class="min-w-full text-sm">
-      <thead class="bg-indigo-600 text-white">
-        <tr>
-          <th class="p-3 text-left min-w-[260px]">Descripción de Ruido</th>
-          <th class="p-3 text-left min-w-[200px] border-l">Duración de exposición</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr class="odd:bg-white even:bg-gray-50">
-          <td class="p-3">{{ $extra->descripcion_ruido ?? '—' }}</td>
-          <td class="p-3 border-l">{{ $extra->tiempo_exposicion_ruido ?? '—' }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  {{-- ===== EXPOSICIÓN STRESS TÉRMICO ===== --}}
-  <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
-    <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
-      Exposición Stress Térmico
+    {{-- ===== ESTRÉS TÉRMICO (ident_estres_termico) ===== --}}
+    <div class="mt-6 border rounded-2xl overflow-hidden shadow-sm">
+      <div class="bg-indigo-200 text-black px-4 py-2 font-semibold text-center uppercase">
+        Exposición Stress Térmico
+      </div>
+      <table class="min-w-full text-sm">
+        <thead class="bg-indigo-600 text-white">
+          <tr>
+            <th class="p-3 text-left min-w-[260px]">Descripción de Stress térmico</th>
+            <th class="p-3 text-left min-w-[200px] border-l">Duración de exposición</th>
+          </tr>
+        </thead>
+        <tbody>
+          @forelse($termicoRows as $t)
+            <tr class="odd:bg-white even:bg-gray-50">
+              <td class="p-3">{{ $t->descripcion ?? '—' }}</td>
+              <td class="p-3 border-l">{{ $t->duracion ?? '—' }}</td>
+            </tr>
+          @empty
+            <tr>
+              <td colspan="2" class="p-6 text-center text-gray-500">Sin registros de estrés térmico.</td>
+            </tr>
+          @endforelse
+        </tbody>
+      </table>
     </div>
-    <table class="min-w-full text-sm">
-      <thead class="bg-indigo-600 text-white">
-        <tr>
-          <th class="p-3 text-left min-w-[260px]">Descripción de Stress térmico</th>
-          <th class="p-3 text-left min-w-[200px] border-l">Duración de exposición</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr class="odd:bg-white even:bg-gray-50">
-          <td class="p-3">{{ $extra->descripcion_temperatura ?? '—' }}</td>
-          <td class="p-3 border-l">{{ $extra->tiempo_exposicion_temperatura ?? '—' }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-@endif
+
+  @endif
 </div>
-
 
 @endsection

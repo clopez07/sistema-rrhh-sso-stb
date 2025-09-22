@@ -557,6 +557,67 @@ class IdentificacionRiesgosController extends Controller
                 }
             }
 
+            // 3.X Reglas automáticas -> riesgo_valor (colocar antes de DB::commit())
+            {
+                // Normalizador simple para comparar
+                $norm = function ($s) {
+                    $t = strtoupper(trim((string)$s));
+                    $t = str_replace(['/', '.', ' '], '', $t); // "n/a" => "NA"
+                    return $t;
+                };
+                $esNA       = fn($s) => $norm($s) === 'NA';
+                $esNinguno  = fn($s) => $norm($s) === 'NINGUNO';
+
+                // ===== Regla 1: Esfuerzo físico -> riesgo 30
+                $descFisico = [
+                    $r->input('fisico_cargar_desc'),
+                    $r->input('fisico_halar_desc'),
+                    $r->input('fisico_empujar_desc'),
+                    $r->input('fisico_sujetar_desc'),
+                ];
+                $hayEsfuerzoFisico = collect($descFisico)->contains(function ($v) use ($esNA) {
+                    if ($v === null) return false;
+                    $t = trim((string)$v);
+                    if ($t === '') return false;
+                    return !$esNA($t); // distinto de "N/A" (NA, N/A, n.a., etc.)
+                });
+
+                // ===== Regla 2: Visual -> riesgo 40 (si existe fila con tipo != "Ninguno")
+                // $visual y $ruido ya vienen normalizados como Collections arriba
+                $hayVisual = $visual->contains(function ($row) use ($esNinguno) {
+                    $tipo = (string)($row['tipo'] ?? '');
+                    if (trim($tipo) === '') return false;
+                    return !$esNinguno($tipo);
+                });
+
+                // ===== Regla 3: Ruido -> riesgo 37 (si existe fila con desc != "Ninguno")
+                $hayRuido = $ruido->contains(function ($row) use ($esNinguno) {
+                    $desc = (string)($row['desc'] ?? '');
+                    if (trim($desc) === '') return false;
+                    return !$esNinguno($desc);
+                });
+
+                // Aplica SI/NO según condición actual (también en ediciones)
+                $rules = [
+                    30 => $hayEsfuerzoFisico, // esfuerzo físico
+                    40 => $hayVisual,         // esfuerzo visual
+                    37 => $hayRuido,          // ruido
+                ];
+
+                foreach ($rules as $riskId => $has) {
+                    DB::table('riesgo_valor')->updateOrInsert(
+                        [
+                            'id_puesto_trabajo_matriz' => $idPuesto,
+                            'id_riesgo'                => $riskId,
+                        ],
+                        [
+                            'valor'         => $has ? 'SI' : 'NO',
+                            'observaciones' => null,
+                        ]
+                    );
+                }
+            }
+
             DB::commit();
             return back()->with('success', 'Se guardó correctamente (Puesto #'.$idPuesto.')');
         } catch (\Throwable $e) {

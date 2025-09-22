@@ -153,7 +153,7 @@
 </head>
 <body>
 
-<a href="/" class="btn-volver" type="button" aria-label="Volver a inicio">
+<a href="/verificacion" class="btn-volver" type="button" aria-label="Volver a inicio">
   <span class="ico" aria-hidden="true"></span>
   <span>Volver a inicio</span>
 </a>

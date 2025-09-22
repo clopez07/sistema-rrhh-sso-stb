@@ -12,15 +12,7 @@ class RiesgosReportController extends Controller
         $puestoId = (int) $r->query('puesto');
         $q        = trim((string) $r->query('q', ''));
 
-        $estandar = DB::table('estandar_iluminacion as ei')
-    ->join('localizacion as lo', 'ei.id_localizacion', '=', 'lo.id_localizacion')
-    ->join('puesto_trabajo_matriz as ptm', 'ptm.id_localizacion', '=', 'lo.id_localizacion')
-    ->join('identificacion_riesgos as ir', 'ptm.id_puesto_trabajo_matriz', '=', 'ir.id_puesto_trabajo_matriz')
-    ->where('ir.id_puesto_trabajo_matriz', $puestoId)
-    ->select('ptm.puesto_trabajo_matriz', 'lo.localizacion', 'ei.em', 'ir.tipo_esfuerzo_visual', 'ir.nivel_mediciones_visual', 'ir.tiempo_exposicion_visual')
-    ->get();
-
-        // Catalogo de puestos para el selector
+        // Catálogo de puestos para el selector
         $puestos = DB::table('puesto_trabajo_matriz')
             ->select('id_puesto_trabajo_matriz', 'puesto_trabajo_matriz', 'num_empleados')
             ->orderBy('puesto_trabajo_matriz')
@@ -29,7 +21,7 @@ class RiesgosReportController extends Controller
         $rows = [];
 
         if ($puestoId) {
-            // Toma el último registro de identificacion_riesgos para ese puesto (ajusta si quieres "todos")
+            // Último registro de identificación para mapear "Esfuerzo Físico" (cargar/halar/empujar/sujetar)
             $ir = DB::table('identificacion_riesgos AS ir')
                 ->join('puesto_trabajo_matriz AS p', 'p.id_puesto_trabajo_matriz', '=', 'ir.id_puesto_trabajo_matriz')
                 ->where('ir.id_puesto_trabajo_matriz', $puestoId)
@@ -42,7 +34,6 @@ class RiesgosReportController extends Controller
                 ->first();
 
             if ($ir) {
-                // Mapeo de columnas → filas del reporte
                 $map = [
                     'Cargar' => [
                         'tipo'       => 'tipo_esfuerzo_cargar',
@@ -95,7 +86,6 @@ class RiesgosReportController extends Controller
                         'peso'          => $ir->{$f['peso']}       ?: null,
                     ];
 
-                    // Filtro de búsqueda libre (en cualquiera de las columnas visibles)
                     if ($q !== '') {
                         $hay = false;
                         foreach (['tipo','descripcion','equipo','duracion','distancia','frecuencia','peso'] as $k) {
@@ -109,30 +99,67 @@ class RiesgosReportController extends Controller
             }
         }
 
-        $extra = null;
+        // ====== NUEVO: Tablas separadas por puesto ======
+        $visualRows  = collect();
+        $ruidoRows   = collect();
+        $termicoRows = collect();
 
         if ($puestoId) {
-            $extra = DB::table('identificacion_riesgos')
-                ->where('id_puesto_trabajo_matriz', $puestoId)
-                ->select([
-                    'tipo_esfuerzo_visual',
-                    'tiempo_exposicion_visual',
-                    'descripcion_ruido',
-                    'tiempo_exposicion_ruido',
-                    'descripcion_temperatura',
-                    'tiempo_exposicion_temperatura',
-                ])
-                ->first();
+            // ident_esfuerzo_visual
+            $visualRows = DB::table('ident_esfuerzo_visual AS ev')
+                ->where('ev.id_puesto_trabajo_matriz', $puestoId)
+                ->when($q !== '', function ($qb) use ($q) {
+                    $qb->where(function ($w) use ($q) {
+                        $w->where('ev.tipo_esfuerzo_visual', 'like', "%{$q}%")
+                          ->orWhere('ev.tiempo_exposicion', 'like', "%{$q}%");
+                    });
+                })
+                ->orderByDesc('ev.id_ident_esfuerzo_visual')
+                ->get([
+                    'ev.tipo_esfuerzo_visual AS tipo',
+                    'ev.tiempo_exposicion AS tiempo',
+                ]);
+
+            // ident_exposicion_ruido
+            $ruidoRows = DB::table('ident_exposicion_ruido AS er')
+                ->where('er.id_puesto_trabajo_matriz', $puestoId)
+                ->when($q !== '', function ($qb) use ($q) {
+                    $qb->where(function ($w) use ($q) {
+                        $w->where('er.descripcion_ruido', 'like', "%{$q}%")
+                          ->orWhere('er.duracion_exposicion', 'like', "%{$q}%");
+                    });
+                })
+                ->orderByDesc('er.id_ident_exposicion_ruido')
+                ->get([
+                    'er.descripcion_ruido AS descripcion',
+                    'er.duracion_exposicion AS duracion',
+                ]);
+
+            // ident_estres_termico
+            $termicoRows = DB::table('ident_estres_termico AS et')
+                ->where('et.id_puesto_trabajo_matriz', $puestoId)
+                ->when($q !== '', function ($qb) use ($q) {
+                    $qb->where(function ($w) use ($q) {
+                        $w->where('et.descripcion_stress_termico', 'like', "%{$q}%")
+                          ->orWhere('et.duracion_exposicion', 'like', "%{$q}%");
+                    });
+                })
+                ->orderByDesc('et.id_ident_estres_termico')
+                ->get([
+                    'et.descripcion_stress_termico AS descripcion',
+                    'et.duracion_exposicion AS duracion',
+                ]);
         }
 
         return view('riesgos.fisico_por_puesto', [
-            // lo que ya mandas:
-            'puestos'   => $puestos,
-            'puestoId'  => $puestoId,
-            'buscar'    => $q,
-            'rows'      => $rows,
-            // nuevo:
-            'extra'     => $extra,
+            'puestos'     => $puestos,
+            'puestoId'    => $puestoId,
+            'buscar'      => $q,
+            'rows'        => $rows,
+            // nuevos datasets
+            'visualRows'  => $visualRows,
+            'ruidoRows'   => $ruidoRows,
+            'termicoRows' => $termicoRows,
         ]);
     }
 }
