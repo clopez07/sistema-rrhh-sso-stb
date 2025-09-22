@@ -22,16 +22,16 @@ class ReporteRuidoExport
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Reporte Ruido');
 
-        $colorHeader = '00B0F0';
-        $colorHeaderDark = '0088BC';
-        $colorBorder = '000000';
-        $colorWhite = 'FFFFFF';
+        $colorHeader      = '00B0F0';
+        $colorHeaderDark  = '0088BC';
+        $colorBorder      = '000000';
+        $colorWhite       = 'FFFFFF';
 
         $thinBorders = [
             'borders' => [
                 'allBorders' => [
                     'borderStyle' => Border::BORDER_THIN,
-                    'color' => ['rgb' => $colorBorder],
+                    'color'       => ['rgb' => $colorBorder],
                 ],
             ],
         ];
@@ -40,8 +40,8 @@ class ReporteRuidoExport
             'font' => ['bold' => true],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
-                'vertical' => Alignment::VERTICAL_CENTER,
-                'wrapText' => true,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
             ],
         ];
 
@@ -49,33 +49,45 @@ class ReporteRuidoExport
             'font' => ['bold' => true, 'color' => ['rgb' => $colorWhite]],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
-                'vertical' => Alignment::VERTICAL_CENTER,
-                'wrapText' => true,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
             ],
             'fill' => [
-                'fillType' => Fill::FILL_SOLID,
+                'fillType'   => Fill::FILL_SOLID,
                 'startColor' => ['rgb' => $colorHeader],
             ],
         ];
 
-        $centerBoldWhiteDark = $centerBoldWhite;
+        $centerBoldWhiteDark          = $centerBoldWhite;
         $centerBoldWhiteDark['fill']['startColor']['rgb'] = $colorHeaderDark;
 
         $left = [
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_LEFT,
-                'vertical' => Alignment::VERTICAL_CENTER,
-                'wrapText' => true,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
             ],
         ];
 
         $right = [
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_RIGHT,
-                'vertical' => Alignment::VERTICAL_CENTER,
+                'vertical'   => Alignment::VERTICAL_CENTER,
             ],
         ];
 
+        $center = [
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical'   => Alignment::VERTICAL_CENTER,
+            ],
+        ];
+
+        $small = [
+            'font' => ['size' => 9],
+        ];
+
+        // Anchos
         $sheet->getColumnDimension('A')->setWidth(6);
         $sheet->getColumnDimension('B')->setWidth(36);
         $sheet->getColumnDimension('C')->setWidth(36);
@@ -87,6 +99,7 @@ class ReporteRuidoExport
         $sheet->getColumnDimension('I')->setWidth(16);
         $sheet->getColumnDimension('J')->setWidth(46);
 
+        // Encabezado
         $row = 1;
         $sheet->mergeCells("A{$row}:J{$row}")->setCellValue("A{$row}", 'SERVICE AND TRADING BUSINESS S.A. DE C.V.');
         $row++;
@@ -106,29 +119,59 @@ class ReporteRuidoExport
             $row++;
         }
 
+        // Localizaciones
         $locNames = DB::table('localizacion')->pluck('localizacion', 'id_localizacion');
 
+        // Traer datos base + área del puesto
         $records = DB::table('mediciones_ruido as m')
             ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+            ->leftJoin('area as a', 'a.id_area', '=', 'p.id_area')
             ->select(
                 'm.id_mediciones_ruido as id',
                 'm.id_localizacion',
                 'm.punto_medicion',
                 'p.puesto_trabajo_matriz as puesto',
+                'a.area as area_nombre',
                 'm.nivel_maximo',
                 'm.nivel_minimo',
                 'm.nivel_promedio',
-                'm.nrr',
-                'm.nre',
                 'm.limites_aceptables',
                 'm.acciones_correctivas'
             )
             ->when($this->locId, fn($q) => $q->where('m.id_localizacion', $this->locId))
-            ->when($this->year, fn($q) => $q->whereYear('m.fecha_realizacion_inicio', $this->year))
+            ->when($this->year, fn($q) => $q->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$this->year]))
             ->orderBy('m.id_localizacion')
             ->orderBy('m.punto_medicion')
             ->orderBy('m.id_mediciones_ruido')
             ->get();
+
+        // Calcular Prom, NRR, NRE con las mismas reglas que la vista
+        $records = $records->map(function ($r) {
+            $max = is_numeric($r->nivel_maximo) ? (float)$r->nivel_maximo : null;
+            $min = is_numeric($r->nivel_minimo) ? (float)$r->nivel_minimo : null;
+
+            if (!is_null($max) && !is_null($min)) {
+                $prom = ($max + $min) / 2.0;
+            } else {
+                $prom = is_numeric($r->nivel_promedio) ? (float)$r->nivel_promedio : null;
+            }
+
+            $lim  = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 85.0;
+            $nrr  = null;
+            $nre  = $prom;
+
+            if (!is_null($prom) && $prom > $lim) {
+                $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+                $nre = $prom - $nrr;
+            }
+
+            $r->calc_promedio = is_null($prom) ? null : round($prom, 2);
+            $r->calc_nrr      = is_null($nrr)  ? null : round($nrr, 2);
+            $r->calc_nre      = is_null($nre)  ? null : round($nre, 2);
+            $r->lim_final     = $lim;
+
+            return $r;
+        });
 
         $groups = $records->groupBy('id_localizacion');
 
@@ -149,6 +192,7 @@ class ReporteRuidoExport
                 ->getStartColor()->setRGB($colorHeader);
             $sheet->getRowDimension($row)->setRowHeight(20);
 
+            // Encabezados
             $row++;
             $firstHeaderRow = $row;
             $sheet->setCellValue("A{$row}", 'No.');
@@ -171,6 +215,7 @@ class ReporteRuidoExport
             $sheet->getRowDimension($row)->setRowHeight(20);
             $sheet->getStyle('A' . $firstHeaderRow . ":J{$row}")->applyFromArray($thinBorders);
 
+            // Filas
             $n = 1;
             foreach ($rows as $data) {
                 $row++;
@@ -179,10 +224,10 @@ class ReporteRuidoExport
                 $sheet->setCellValue("C{$row}", $data->puesto ?: '');
                 $sheet->setCellValue("D{$row}", $this->fmt($data->nivel_maximo));
                 $sheet->setCellValue("E{$row}", $this->fmt($data->nivel_minimo));
-                $sheet->setCellValue("F{$row}", $this->fmt($data->nivel_promedio));
-                $sheet->setCellValue("G{$row}", $this->fmt($data->nrr));
-                $sheet->setCellValue("H{$row}", $this->fmt($data->nre));
-                $sheet->setCellValue("I{$row}", $this->fmt($data->limites_aceptables, 0));
+                $sheet->setCellValue("F{$row}", $this->fmt($data->calc_promedio)); // <-- promedio calculado
+                $sheet->setCellValue("G{$row}", $this->fmt($data->calc_nrr));       // <-- nrr calculado (o vacío)
+                $sheet->setCellValue("H{$row}", $this->fmt($data->calc_nre));       // <-- nre calculado
+                $sheet->setCellValue("I{$row}", $this->fmt($data->lim_final, 0));   // <-- límite final usado
                 $sheet->setCellValue("J{$row}", $data->acciones_correctivas ?: '');
 
                 $sheet->getStyle("A{$row}")->applyFromArray($centerBold);
@@ -191,6 +236,9 @@ class ReporteRuidoExport
                 $sheet->getStyle("A{$row}:J{$row}")->applyFromArray($thinBorders);
                 $sheet->getRowDimension($row)->setRowHeight(18);
             }
+
+            // (Opcional) Dejar una fila en blanco entre localizaciones:
+            $row++;
         }
 
         if (!$hasRows) {
@@ -200,6 +248,29 @@ class ReporteRuidoExport
             $sheet->getStyle("A{$row}:J{$row}")->applyFromArray($centerBold);
         }
 
+        $row += 2; // espacio antes del pie
+
+        // Izquierda (dos líneas) en columna B
+        $sheet->setCellValue("B{$row}", '1 Copia Archivo');
+        $sheet->getStyle("B{$row}")->applyFromArray($small)->applyFromArray($left);
+        $row++;
+
+        $sheet->setCellValue("B{$row}", '1 Copia Sistema');
+        $sheet->getStyle("B{$row}")->applyFromArray($small)->applyFromArray($left);
+        $row++;
+
+        // Misma fila: centro y derecha
+        $sheet->setCellValue("B{$row}", 'VERSION 2018');
+        $sheet->getStyle("B{$row}")->applyFromArray($small)->applyFromArray($center);
+
+        $sheet->setCellValue("C{$row}", 'STB/SSO/R040');
+        $sheet->getStyle("C{$row}")->applyFromArray($small)->applyFromArray($left);
+
+        // (Opcional) altura de las filas del pie
+        $sheet->getRowDimension($row-2)->setRowHeight(16);
+        $sheet->getRowDimension($row-1)->setRowHeight(16);
+        $sheet->getRowDimension($row  )->setRowHeight(16);
+
         return $spreadsheet;
     }
 
@@ -208,11 +279,9 @@ class ReporteRuidoExport
         if ($value === null || $value === '') {
             return '';
         }
-
         if (!is_numeric($value)) {
             return (string) $value;
         }
-
         return number_format((float) $value, $decimals);
     }
 }

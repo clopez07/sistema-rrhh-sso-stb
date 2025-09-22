@@ -8,7 +8,12 @@
     <div class="flex items-end gap-3 mb-4">
         <div>
             <label class="block text-sm font-medium text-gray-600">Buscar Puesto</label>
-            <input type="text" name="puesto" form="filters" value="{{ $buscarPuesto }}" class="mt-1 w-56 rounded-xl border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="Nombre del puesto...">
+            <input type="text" name="puesto" form="filters" value="{{ $buscarPuesto }}" class="mt-1 w-56 rounded-xl border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="Nombre del puesto..." list="puestos-list">
+            <datalist id="puestos-list">
+                @foreach($puestos as $p)
+                    <option value="{{ $p->puesto_trabajo_matriz }}"></option>
+                @endforeach
+            </datalist>
         </div>
         <div>
             <label class="block text-sm font-medium text-gray-600">Buscar Capacitación</label>

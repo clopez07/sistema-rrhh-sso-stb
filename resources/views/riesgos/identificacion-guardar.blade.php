@@ -153,6 +153,52 @@
 </head>
 <body>
 
+<a href="/" class="btn-volver" type="button" aria-label="Volver a inicio">
+  <span class="ico" aria-hidden="true"></span>
+  <span>Volver a inicio</span>
+</a>
+
+<style>
+  .btn-volver{
+    --brand1:#00B0F0; --brand2:#0088BC;
+    display:inline-flex; align-items:center; gap:.55rem;
+    padding:.55rem 1rem; border:0; cursor:pointer;
+    border-radius:9999px; color:#fff; font-weight:600;
+    background:linear-gradient(90deg,var(--brand1),var(--brand2));
+    box-shadow:0 6px 16px rgba(0,0,0,.12);
+    transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;
+    margin-top: 20px; 
+  }
+  .btn-volver:hover{ transform:translateX(-2px); box-shadow:0 10px 22px rgba(0,0,0,.16); filter:saturate(1.05); }
+  .btn-volver:active{ transform:translateX(-1px) scale(.98); }
+  .btn-volver:focus-visible{ outline:3px solid #00B0F0; outline-offset:2px; }
+
+  /* Flecha izquierda (puro CSS) */
+  .btn-volver .ico{
+    position:relative; width:16px; height:14px; margin-left:-2px;
+    transition:transform .15s ease;
+  }
+  .btn-volver .ico::before{ /* eje */
+    content:""; position:absolute; left:2px; top:50%;
+    width:14px; height:2px; background:currentColor; border-radius:2px;
+    transform:translateY(-50%);
+  }
+  .btn-volver .ico::after{ /* punta */
+    content:""; position:absolute; left:0; top:50%;
+    width:8px; height:8px; border-left:2px solid currentColor; border-bottom:2px solid currentColor;
+    transform:translateY(-50%) rotate(45deg);
+  }
+  .btn-volver:hover .ico{ transform:translateX(-3px); }
+
+  /* Variante “ghost” clara (opcional) */
+  .btn-volver.ghost{
+    background:#fff; color:#0088BC; border:1px solid #00B0F0;
+    box-shadow:none;
+  }
+  .btn-volver.ghost:hover{ background:#E6F6FF; }
+  .btn-volver:disabled{ opacity:.6; cursor:not-allowed; }
+</style>
+
 @if ($errors->any())
   <div style="margin:10px 0; padding:8px; border:1px solid #c00; color:#b00020;">
     @foreach ($errors->all() as $e)

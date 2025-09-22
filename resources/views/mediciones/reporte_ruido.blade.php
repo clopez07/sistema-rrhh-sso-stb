@@ -109,13 +109,17 @@
                 <span class="puesto-display">{{ $r->puesto }}</span>
               </td>
 
+              @php
+                $fmt = fn($v,$d=2) => is_null($v) ? '' : number_format((float)$v, $d);
+              @endphp
+
               {{-- Niveles --}}
               <td style="text-align:right;">{{ $fmt($r->nivel_maximo) }}</td>
               <td style="text-align:right;">{{ $fmt($r->nivel_minimo) }}</td>
-              <td style="text-align:right;">{{ $fmt($r->nivel_promedio) }}</td>
-              <td style="text-align:right;">{{ $fmt($r->nrr) }}</td>
-              <td style="text-align:right;">{{ $fmt($r->nre) }}</td>
-              <td style="text-align:right;">{{ $lim }}</td>
+              <td style="text-align:right;">{{ $fmt($r->calc_promedio) }}</td>
+              <td style="text-align:right;">{{ $fmt($r->calc_nrr) }}</td>
+              <td style="text-align:right;">{{ $fmt($r->calc_nre) }}</td>
+              <td style="text-align:right;">{{ $fmt($r->lim_final, 0) }}</td>
 
               {{-- Acciones correctivas + botones --}}
               <td>

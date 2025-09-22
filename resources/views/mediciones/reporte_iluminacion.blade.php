@@ -100,7 +100,7 @@
               {{ $r->promedio === null ? '' : $r->promedio }}
             </td>
             <td style="text-align:right;">
-              {{ $r->limites_aceptables === null ? '' : $r->limites_aceptables }}
+              {{ isset($emByLoc[$r->id_localizacion]) ? $emByLoc[$r->id_localizacion] : '' }}
             </td>
               {{-- Acciones correctivas (editable) --}}
               <td>

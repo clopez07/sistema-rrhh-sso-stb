@@ -226,13 +226,22 @@ public function reporteIluminacion(\Illuminate\Http\Request $request)
         ->orderBy('puesto_trabajo_matriz')
         ->get();
 
-    return view('mediciones.reporte_iluminacion', [
-        'year'           => $year,
-        'localizaciones' => $localizaciones,
-        'grupos'         => $filas,
-        'puestos'        => $puestos,
-        'years'         => $availableYears,
-    ]);
+    // ← NUEVO: EM por localización (si hay varias filas del estándar, tomamos el mayor)
+        $emByLoc = \DB::table('estandar_iluminacion')
+            ->select('id_localizacion', \DB::raw('MAX(em) as em'))
+            ->groupBy('id_localizacion')
+            ->pluck('em', 'id_localizacion');   // [ id_localizacion => em ]
+
+        // ...tu código para $puestos, etc...
+
+        return view('mediciones.reporte_iluminacion', [
+            'year'           => $year,
+            'localizaciones' => $localizaciones,
+            'grupos'         => $filas,
+            'puestos'        => $puestos,
+            'years'          => $availableYears,
+            'emByLoc'        => $emByLoc,       // ← PASAR A LA VISTA
+        ]);
 }
 
 
@@ -274,56 +283,95 @@ public function reporteRuido(\Illuminate\Http\Request $request)
         $availableYears = $availableYears->concat([$year])->unique()->sortDesc()->values();
     }
 
-    // Todas las localizaciones para mostrar secciones aunque estén vacías
-    $localizaciones = \DB::table('localizacion')
-        ->select('id_localizacion','localizacion')
-        ->orderBy('localizacion')
-        ->get();
+    // Todas las localizaciones (secciones aunque estén vacías)
+$localizaciones = \DB::table('localizacion')
+    ->select('id_localizacion','localizacion')
+    ->orderBy('localizacion')
+    ->get();
 
-    // Filas (puntos) con puesto
-    $filas = \DB::table('mediciones_ruido as m')
-        ->leftJoin('puesto_trabajo_matriz as p','p.id_puesto_trabajo_matriz','=','m.id_puesto_trabajo_matriz')
-        ->select(
-            'm.id_mediciones_ruido as id',
-            'm.id_localizacion',
-            'm.punto_medicion',
-            'm.id_puesto_trabajo_matriz',
-            'p.puesto_trabajo_matriz as puesto',
-            'm.nivel_maximo',
-            'm.nivel_minimo',
-            'm.nivel_promedio',
-            'm.nrr',
-            'm.nre',
-            'm.limites_aceptables',
-            'm.acciones_correctivas'
-        )
-        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
-        ->orderBy('m.id_localizacion')
-        ->orderBy('m.punto_medicion')
-        ->get()
-        ->groupBy('id_localizacion')
-        ->map(function ($rows) {
-            return $rows->sort(function ($a, $b) {
-                $cmp = strnatcasecmp((string)($a->punto_medicion ?? ''),(string)($b->punto_medicion ?? ''));
-                if ($cmp === 0) {
-                    $cmp = strcasecmp((string)($a->puesto ?? ''),(string)($b->puesto ?? ''));
-                }
-                return $cmp;
-            })->values();
-        });
+/*
+ * Filas (puntos) con puesto + área del puesto.
+ * Luego calculamos PROM, NRR y NRE en PHP según tus reglas.
+ */
+$rawRows = \DB::table('mediciones_ruido as m')
+    ->leftJoin('puesto_trabajo_matriz as p','p.id_puesto_trabajo_matriz','=','m.id_puesto_trabajo_matriz')
+    ->leftJoin('area as a','a.id_area','=','p.id_area')
+    ->select(
+        'm.id_mediciones_ruido as id',
+        'm.id_localizacion',
+        'm.punto_medicion',
+        'm.id_puesto_trabajo_matriz',
+        'p.puesto_trabajo_matriz as puesto',
+        'a.area as area_nombre',
+        'm.nivel_maximo',
+        'm.nivel_minimo',
+        'm.nivel_promedio',     // por compatibilidad; lo recalculamos igual
+        'm.limites_aceptables',
+        'm.acciones_correctivas'
+    )
+    ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
+    ->orderBy('m.id_localizacion')
+    ->orderBy('m.punto_medicion')
+    ->get();
 
-    $puestos = \DB::table('puesto_trabajo_matriz')
-        ->select('id_puesto_trabajo_matriz','puesto_trabajo_matriz')
-        ->orderBy('puesto_trabajo_matriz')
-        ->get();
+/* Cálculo de columnas derivadas */
+$calcRows = $rawRows->map(function ($r) {
+    $max = is_numeric($r->nivel_maximo) ? (float)$r->nivel_maximo : null;
+    $min = is_numeric($r->nivel_minimo) ? (float)$r->nivel_minimo : null;
 
-    return view('mediciones.reporte_ruido', [
-        'year'           => $year,
-        'localizaciones' => $localizaciones,
-        'grupos'         => $filas,
-        'puestos'        => $puestos,
-        'years'          => $availableYears,
-    ]);
+    // PROMEDIO = (max + min) / 2 (si alguno falta, intenta usar el promedio guardado)
+    if (!is_null($max) && !is_null($min)) {
+        $prom = ($max + $min) / 2.0;
+    } else {
+        $prom = is_numeric($r->nivel_promedio) ? (float)$r->nivel_promedio : null;
+    }
+
+    // Límite (default 85)
+    $lim = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 85.0;
+
+    // NRR y NRE
+    $nrr = null;   // sólo si excede el límite
+    $nre = $prom;  // por defecto, el mismo promedio
+
+    if (!is_null($prom) && $prom > $lim) {
+        $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+        $nre = $prom - $nrr;
+    }
+
+    // Guardar calculados para la vista
+    $r->calc_promedio = is_null($prom) ? null : round($prom, 2);
+    $r->calc_nrr      = is_null($nrr)  ? null : round($nrr, 2);
+    $r->calc_nre      = is_null($nre)  ? null : round($nre, 2);
+    $r->lim_final     = $lim; // para mostrar (y formatear) el límite final usado
+
+    return $r;
+});
+
+/* Agrupar por localización y ordenar dentro del grupo */
+$filas = $calcRows
+    ->groupBy('id_localizacion')
+    ->map(function ($rows) {
+        return $rows->sort(function ($a, $b) {
+            $cmp = strnatcasecmp((string)($a->punto_medicion ?? ''),(string)($b->punto_medicion ?? ''));
+            if ($cmp === 0) {
+                $cmp = strcasecmp((string)($a->puesto ?? ''),(string)($b->puesto ?? ''));
+            }
+            return $cmp;
+        })->values();
+    });
+
+$puestos = \DB::table('puesto_trabajo_matriz')
+    ->select('id_puesto_trabajo_matriz','puesto_trabajo_matriz')
+    ->orderBy('puesto_trabajo_matriz')
+    ->get();
+
+return view('mediciones.reporte_ruido', [
+    'year'           => $year,
+    'localizaciones' => $localizaciones,
+    'grupos'         => $filas,
+    'puestos'        => $puestos,
+    'years'          => $availableYears,
+]);
 }
 
 public function updateAccionRuido(\Illuminate\Http\Request $request)
