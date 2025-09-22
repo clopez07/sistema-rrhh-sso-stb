@@ -481,7 +481,6 @@ Route::post('/evaluacion-riesgos/exportar', [EvaluacionRiesgosExportController::
     Route::get('/notificacion-riesgos-excel/puestos', [NotificacionRiesgoExcelTemplateController::class, 'puestos'])
         ->name('notificacion.excel.puestos');
 
-    // Nuevos endpoints para Notificación por Empleado
     Route::get('/notificacion-riesgos-excel/empleados', [NotificacionRiesgoExcelTemplateController::class, 'empleados'])
         ->name('notificacion.excel.empleados');
     Route::post('/notificacion-riesgos-excel/export/empleado', [NotificacionRiesgoExcelTemplateController::class, 'exportEmpleado'])
@@ -492,7 +491,6 @@ Route::post('/evaluacion-riesgos/exportar', [EvaluacionRiesgosExportController::
         Route::post('/prestamos/{prestamo}/marcar-pagadas', [PrestamosNuevo::class, 'marcarPagadasHastaFecha'])
     ->name('prestamos.marcar-pagadas');
 
-    // routes/web.php
     Route::post('/prestamos/ajustes/import', [\App\Http\Controllers\AjustesPrestamosController::class, 'importExcel'])
         ->name('prestamos.ajustes.import');
 
@@ -505,7 +503,7 @@ Route::post('/evaluacion-riesgos/exportar', [EvaluacionRiesgosExportController::
      ->name('mediciones.iluminacion.reporte');
 
     Route::post('/mediciones/iluminacion/reporte/accion', [MedicionesController::class, 'updateAccionIluminacion'])
-        ->name('mediciones.iluminacion.accion');   // AJAX inline
+        ->name('mediciones.iluminacion.accion');
 
     Route::get('/mediciones/ruido/reporte', [MedicionesController::class, 'reporteRuido'])
         ->name('mediciones.ruido.reporte');
@@ -513,7 +511,6 @@ Route::post('/evaluacion-riesgos/exportar', [EvaluacionRiesgosExportController::
     Route::post('/mediciones/ruido/reporte/accion', [MedicionesController::class, 'updateAccionRuido'])
         ->name('mediciones.ruido.accion');
 
-    // (Opcional) si alguien abre la URL a mano, lo regresamos al reporte
     Route::get('/mediciones/ruido/reporte/accion', function () {
         return redirect()->route('mediciones.ruido.reporte');
     });
@@ -548,16 +545,20 @@ Route::post('/mediciones/ruido/update', [MedicionesController::class, 'updateRui
      Route::get('mediciones/export/iluminacion', [MedicionesController::class, 'exportIluminacion'])
     ->name('mediciones.export.iluminacion');
 
-Route::get('mediciones/export/ruido', [MedicionesController::class, 'exportRuido'])
+    Route::get('mediciones/export/ruido', [MedicionesController::class, 'exportRuido'])
     ->name('mediciones.export.ruido');
 
     Route::get('/prestamos/empleados/export', [\App\Http\Controllers\Prestamos::class, 'exportEmpleadosPrestamo'])
     ->name('empleadosprestamo.export');
 
-    // routes/web.php
-Route::get('mediciones/export/iluminacion-plantilla', [MedicionesController::class, 'exportIluminacionDesdePlantilla'])
+    Route::get('mediciones/export/iluminacion-plantilla', [MedicionesController::class, 'exportIluminacionDesdePlantilla'])
     ->name('mediciones.export.iluminacion.plantilla');
 
+    Route::get('/mediciones/timeline/excel', [\App\Http\Controllers\MedicionesController::class, 'timelineExcel'])
+    ->name('mediciones.timeline.excel');
+
+    Route::get('nataly/mediciones/export/ruido-plantilla', [MedicionesController::class, 'exportRuidoDesdePlantilla'])
+     ->name('mediciones.export.ruido.plantilla');
 });
 
 

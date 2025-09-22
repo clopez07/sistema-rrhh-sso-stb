@@ -12,6 +12,10 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class MedicionesController extends Controller
 {
@@ -607,7 +611,343 @@ public function timeline(\Illuminate\Http\Request $request)
     ]);
 }
 
+public function timelineExcel(\Illuminate\Http\Request $request)
+{
+    // --- Hardening salida para evitar XLSX corruptos ---
+    if (class_exists('\\Debugbar')) { \Debugbar::disable(); }
+    @ini_set('zlib.output_compression', 'Off');
+    while (ob_get_level() > 0) { @ob_end_clean(); }
 
+    $locFilter  = $request->integer('id_localizacion'); // opcional
+    $yearFrom   = $request->integer('year_from');
+    $yearTo     = $request->integer('year_to');
+    $yearSingle = $request->integer('year');
+
+    if ($yearSingle && $yearFrom === null && $yearTo === null) { $yearFrom = $yearSingle; $yearTo = $yearSingle; }
+    if ($yearFrom !== null && $yearTo === null) $yearTo = $yearFrom;
+    if ($yearTo   !== null && $yearFrom === null) $yearFrom = $yearTo;
+    if ($yearFrom !== null && $yearTo   !== null && $yearFrom > $yearTo) [ $yearFrom, $yearTo ] = [ $yearTo, $yearFrom ];
+    $yearRange = ($yearFrom !== null && $yearTo !== null) ? [$yearFrom, $yearTo] : null;
+
+    // Catálogos
+    $locs        = \DB::table('localizacion')->select('id_localizacion','localizacion')->orderBy('localizacion')->get();
+    $locNames    = $locs->pluck('localizacion','id_localizacion');
+    $puestoNames = \DB::table('puesto_trabajo_matriz')->pluck('puesto_trabajo_matriz','id_puesto_trabajo_matriz');
+
+    // Límite de iluminación (si tu tabla no tiene id_puesto..., queda 0 en la clave)
+    $limLuxMap = \DB::table('estandar_iluminacion')
+        ->select('id_localizacion', \DB::raw('MAX(em) as limite'))
+        ->groupBy('id_localizacion')
+        ->get()
+        ->mapWithKeys(function($r){
+            $p = $r->id_puesto_trabajo_matriz ?? 0;
+            return [$r->id_localizacion.'|'.$p => $r->limite];
+        });
+
+    // ===== ILUMINACIÓN: valor crudo de 'promedio'; elegir más reciente por fecha y luego por id =====
+    $luxRows = \DB::table('mediciones_iluminacion as m')
+        ->selectRaw('
+            YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y,
+            m.punto_medicion,
+            m.id_puesto_trabajo_matriz,
+            m.id_localizacion,
+            m.promedio,
+            COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final) as fref,
+            m.id
+        ')
+        ->when($locFilter,  fn($q)=>$q->where('m.id_localizacion',$locFilter))
+        ->when($yearRange, fn($q)=>$q->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) BETWEEN ? AND ?', $yearRange))
+        ->get();
+
+    $luxAgg = $luxRows
+        ->groupBy(function($r){
+            return implode('|', [
+                $r->id_localizacion,
+                $r->id_puesto_trabajo_matriz ?: 0,
+                mb_strtolower(trim($r->punto_medicion ?? '')),
+                $r->y
+            ]);
+        })
+        ->map(function($grp){
+            $best = $grp->reduce(function($best, $cur){
+                if (!$best) return $cur;
+                $dBest = $best->fref ?? '0000-00-00';
+                $dCur  = $cur->fref ?? '0000-00-00';
+                if ($dCur > $dBest) return $cur;
+                if ($dCur === $dBest && $cur->id > $best->id) return $cur;
+                return $best;
+            });
+            return (object)[
+                'y'                        => $best->y,
+                'punto_medicion'           => $best->punto_medicion,
+                'id_puesto_trabajo_matriz' => $best->id_puesto_trabajo_matriz,
+                'id_localizacion'          => $best->id_localizacion,
+                'lux_val'                  => is_null($best->promedio) ? null : (float)$best->promedio,
+                'cnt_lux'                  => $grp->count(),
+            ];
+        })
+        ->values();
+
+    // ===== RUIDO: promedio del punto medio (min+max)/2 por grupo/año =====
+    $ruidoAgg = \DB::table('mediciones_ruido as m')
+        ->selectRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')
+        ->addSelect('m.punto_medicion','m.id_puesto_trabajo_matriz','m.id_localizacion')
+        ->selectRaw('AVG((COALESCE(m.nivel_minimo, m.nivel_promedio) + COALESCE(m.nivel_maximo, m.nivel_promedio))/2) as avg_ruido,
+                     COUNT(*) as cnt_ruido')
+        ->when($locFilter,  fn($q)=>$q->where('m.id_localizacion',$locFilter))
+        ->when($yearRange, fn($q)=>$q->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) BETWEEN ? AND ?', $yearRange))
+        ->groupBy('y','m.punto_medicion','m.id_puesto_trabajo_matriz','m.id_localizacion')
+        ->get();
+
+    // Años disponibles
+    $yearsAll = collect(
+        \DB::table('mediciones_iluminacion as m')
+          ->when($locFilter, fn($q)=>$q->where('m.id_localizacion',$locFilter))
+          ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')->pluck('y')
+    )->merge(
+        \DB::table('mediciones_ruido as m')
+          ->when($locFilter, fn($q)=>$q->where('m.id_localizacion',$locFilter))
+          ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')->pluck('y')
+    )->filter()->unique()->sort()->values();
+
+    $years = $yearRange ? collect(range($yearRange[0], $yearRange[1])) : $yearsAll;
+    if ($yearRange && $years->isEmpty()) $years = collect(range($yearRange[0], $yearRange[1]));
+
+    // ===== Fusión de datos para Excel =====
+    $rowKey = function($locId, $puestoId, $punto) {
+        $p = mb_strtolower(trim($punto ?? ''));
+        $pid = $puestoId ?: 0;
+        return $locId.'|'.$pid.'|'.$p;
+    };
+    $cells = [];
+
+    foreach ($luxAgg as $r) {
+        $k = $rowKey($r->id_localizacion, $r->id_puesto_trabajo_matriz, $r->punto_medicion);
+        $cells[$k]['meta'] = [
+            'loc_id'    => $r->id_localizacion,
+            'punto'     => $r->punto_medicion,
+            'puesto_id' => $r->id_puesto_trabajo_matriz,
+        ];
+        $cells[$k]['data'][$r->y]['lux']      = $r->lux_val;      // valor crudo
+        $cells[$k]['data'][$r->y]['cnt_lux']  = (int)$r->cnt_lux;
+    }
+    foreach ($ruidoAgg as $r) {
+        $k = $rowKey($r->id_localizacion, $r->id_puesto_trabajo_matriz, $r->punto_medicion);
+        $cells[$k]['meta'] = $cells[$k]['meta'] ?? [
+            'loc_id'    => $r->id_localizacion,
+            'punto'     => $r->punto_medicion,
+            'puesto_id' => $r->id_puesto_trabajo_matriz,
+        ];
+        $cells[$k]['data'][$r->y]['avg_ruido'] = is_null($r->avg_ruido) ? null : (float)$r->avg_ruido;
+        $cells[$k]['data'][$r->y]['cnt_ruido'] = (int)$r->cnt_ruido;
+    }
+
+    $rows = [];
+    foreach ($cells as $entry) {
+        $meta      = $entry['meta'];
+        $locId     = $meta['loc_id'];
+        $puestoId  = $meta['puesto_id'] ?: 0;
+        $punto     = $meta['punto'] ?: '—';
+        $locNom    = $locNames[$locId] ?? '';
+        $puestoNom = $puestoNames[$puestoId] ?? '—';
+        $limKey    = $locId.'|'.$puestoId;
+        $limLux    = $limLuxMap[$limKey] ?? null;
+
+        $cols = [];
+        foreach ($years as $y) {
+            $d = $entry['data'][$y] ?? [];
+            $cols[] = [
+                'year'      => $y,
+                'lux'       => $d['lux']        ?? null,
+                'cnt_lux'   => $d['cnt_lux']    ?? 0,
+                'avg_ruido' => $d['avg_ruido']  ?? null,
+                'cnt_ruido' => $d['cnt_ruido']  ?? 0,
+            ];
+        }
+
+        $rows[] = [
+            'loc'     => $locNom,
+            'loc_id'  => $locId,
+            'punto'   => $punto,
+            'puesto'  => $puestoNom,
+            'lim_lux' => $limLux,
+            'columns' => $cols,
+        ];
+    }
+
+    usort($rows, function($a,$b){
+        $cmp = strcmp($a['loc'] ?? '', $b['loc'] ?? '');
+        if ($cmp !== 0) return $cmp;
+        return strcmp($a['punto'] ?? '', $b['punto'] ?? '');
+    });
+
+    $groups = [];
+    foreach ($rows as $r) {
+        $id = $r['loc_id'] ?? 0;
+        $groups[$id]['loc']    = $r['loc'] ?? '—';
+        $groups[$id]['rows'][] = $r;
+    }
+    $groups = collect($groups)->sortBy(fn($g) => $g['loc'] ?? '', SORT_NATURAL | SORT_FLAG_CASE)->values()->all();
+
+    // ===== Excel =====
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle(mb_substr('Comparativa', 0, 31));
+
+    $brand = '00B0F0';
+    $startYearColIdx = 6; // F
+    $lastColIdx = empty($years) ? 5 : ($startYearColIdx + (count($years)*4) - 1);
+    $lastCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lastColIdx);
+
+    // Helper A1
+    $addr = function(int $col, int $row) {
+        return \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . $row;
+    };
+
+    // Título
+    $sheet->setCellValue('A1', 'Comparativa anual por punto y puesto');
+    $sheet->mergeCells('A1:C1');
+    $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+
+    // Cabeceras base
+    $sheet->setCellValue('A2', 'Localización');
+    $sheet->setCellValue('B2', 'Punto');
+    $sheet->setCellValue('C2', 'Puesto');
+    $sheet->setCellValue('D2', 'Límite lux');
+    $sheet->setCellValue('E2', 'Límite ruido (dBA)');
+
+    // Cabeceras de años
+    foreach ($years as $i => $y) {
+        $colStart = $startYearColIdx + ($i*4);
+        $c1 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colStart);
+        $c2 = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colStart+3);
+        $sheet->mergeCells("{$c1}2:{$c2}2");
+        $sheet->setCellValue("{$c1}2", $y);
+        $sheet->setCellValue($addr($colStart,   3), 'Lux');
+        $sheet->setCellValue($addr($colStart+1, 3), 'Lux puntos');
+        $sheet->setCellValue($addr($colStart+2, 3), 'Ruido media (dBA)');
+        $sheet->setCellValue($addr($colStart+3, 3), 'Ruido puntos');
+    }
+
+    // Estilos cabecera
+    $sheet->getStyle("A2:{$lastCol}3")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+    $sheet->getStyle("A2:{$lastCol}3")->getAlignment()
+          ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
+          ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
+          ->setWrapText(true);
+    $sheet->getStyle("A2:{$lastCol}3")->getFill()
+          ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+          ->getStartColor()->setRGB($brand);
+    $sheet->getStyle("A2:{$lastCol}3")->getBorders()->getAllBorders()
+          ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
+          ->getColor()->setRGB('000000');
+    $sheet->getRowDimension(2)->setRowHeight(24);
+    $sheet->getRowDimension(3)->setRowHeight(22);
+
+    // Anchos y congelar
+    $sheet->getColumnDimension('A')->setWidth(28);
+    $sheet->getColumnDimension('B')->setWidth(26);
+    $sheet->getColumnDimension('C')->setWidth(28);
+    $sheet->getColumnDimension('D')->setWidth(14);
+    $sheet->getColumnDimension('E')->setWidth(18);
+    for ($ci = 6; $ci <= $lastColIdx; $ci++) {
+        $sheet->getColumnDimension(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($ci))->setWidth(14);
+    }
+    $sheet->freezePane('F4');
+
+    // Datos
+    $rowNum = 4;
+    foreach ($groups as $g) {
+        // Fila categoría
+        $sheet->mergeCells("A{$rowNum}:{$lastCol}{$rowNum}");
+        $sheet->setCellValue("A{$rowNum}", 'Localización: '.($g['loc'] ?? '—'));
+        $sheet->getStyle("A{$rowNum}:{$lastCol}{$rowNum}")->getBorders()->getAllBorders()
+              ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)->getColor()->setRGB('000000');
+        $sheet->getStyle("A{$rowNum}:{$lastCol}{$rowNum}")->getFill()
+              ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E8F3FF');
+        $sheet->getStyle("A{$rowNum}:{$lastCol}{$rowNum}")->getFont()->setBold(true)->getColor()->setRGB('0F172A');
+        $rowNum++;
+
+        foreach (($g['rows'] ?? []) as $r) {
+            $sheet->setCellValue("A{$rowNum}", $r['loc'] ?? '—');
+            $sheet->setCellValue("B{$rowNum}", $r['punto'] ?? '—');
+            $sheet->setCellValue("C{$rowNum}", $r['puesto'] ?? '—');
+
+            $sheet->setCellValue("D{$rowNum}", $r['lim_lux'] ?? null);
+            $sheet->getStyle("D{$rowNum}")->getNumberFormat()->setFormatCode('#,##0.00');
+
+            $sheet->setCellValue("E{$rowNum}", 85);
+            $sheet->getStyle("E{$rowNum}")->getNumberFormat()->setFormatCode('#,##0');
+
+            // index por año
+            $byYear = [];
+            foreach ($r['columns'] as $c) { $byYear[$c['year']] = $c; }
+
+            foreach ($years as $i => $y) {
+                $colStart = $startYearColIdx + ($i*4);
+                $luxVal = $byYear[$y]['lux']        ?? null;
+                $luxCnt = $byYear[$y]['cnt_lux']    ?? null;
+                $ruiAvg = $byYear[$y]['avg_ruido']  ?? null;
+                $ruiCnt = $byYear[$y]['cnt_ruido']  ?? null;
+
+                $sheet->setCellValue($addr($colStart,   $rowNum), $luxVal);
+                $sheet->setCellValue($addr($colStart+1, $rowNum), $luxCnt);
+                $sheet->setCellValue($addr($colStart+2, $rowNum), $ruiAvg);
+                $sheet->setCellValue($addr($colStart+3, $rowNum), $ruiCnt);
+
+                $sheet->getStyle($addr($colStart,   $rowNum))->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle($addr($colStart+1, $rowNum))->getNumberFormat()->setFormatCode('#,##0');
+                $sheet->getStyle($addr($colStart+2, $rowNum))->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle($addr($colStart+3, $rowNum))->getNumberFormat()->setFormatCode('#,##0');
+            }
+
+            // bordes fila
+            $sheet->getStyle("A{$rowNum}:{$lastCol}{$rowNum}")->getBorders()->getAllBorders()
+                  ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)->getColor()->setRGB('000000');
+            $rowNum++;
+        }
+    }
+
+    // Alineación y página
+    $sheet->getStyle("A4:C{$rowNum}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
+    $sheet->getStyle("D4:{$lastCol}{$rowNum}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+    $ps = $sheet->getPageSetup();
+    $ps->setOrientation(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::ORIENTATION_LANDSCAPE);
+    $ps->setPaperSize(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::PAPERSIZE_LETTER);
+    $ps->setFitToWidth(1)->setFitToHeight(0);
+    $margins = $sheet->getPageMargins();
+    $margins->setTop(0.3)->setBottom(0.3)->setLeft(0.25)->setRight(0.25);
+
+    // ===== Guardar y descargar de forma ultra-segura =====
+    $filename = 'Comparativa_mediciones_'.date('Ymd_His').'.xlsx';
+    $tmp = tempnam(sys_get_temp_dir(), 'xlsx_');
+
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->setPreCalculateFormulas(false);
+    $writer->save($tmp);
+
+    // Verificación ZIP: debe iniciar con "PK"
+    $fh = fopen($tmp, 'rb');
+    $head = $fh ? fread($fh, 2) : '';
+    if ($fh) fclose($fh);
+    if ($head !== 'PK') {
+        return response('XLSX inválido: el archivo no inicia con PK (puede haber salida previa en la respuesta).', 500);
+    }
+
+    return response()->streamDownload(function() use ($tmp) {
+        $out = fopen('php://output', 'wb');
+        $in  = fopen($tmp, 'rb');
+        stream_copy_to_stream($in, $out);
+        fclose($in);
+        fclose($out);
+        @unlink($tmp);
+    }, $filename, [
+        'Content-Type'  => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma'        => 'no-cache',
+        'Expires'       => '0',
+    ]);
+}
 
 public function deleteIluminacion(\Illuminate\Http\Request $request)
 {
@@ -1065,6 +1405,200 @@ public function exportIluminacionDesdePlantilla(Request $request)
     ]);
 }
 
+public function exportRuidoDesdePlantilla(Request $request)
+{
+    $year = (int) now()->year;
 
+    // 1) Cargar plantilla
+    $tplPath = storage_path('app/public/medicion_ruido.xlsx');
+    if (!is_file($tplPath)) {
+        abort(404, 'No se encontró la plantilla medicion_ruido.xlsx en storage/app/public');
+    }
+    $spreadsheet = IOFactory::load($tplPath);
+    /** @var Worksheet $tplSheet */
+    $tplSheet = $spreadsheet->getSheetByName('Plantilla') ?? $spreadsheet->getActiveSheet();
+
+    // Parámetros de la tabla/formato ya existentes en la plantilla
+    $headerRow = 14;       // fila del encabezado
+    $firstData = 15;       // primera fila de datos
+    $perPage   = 30;       // ítems por bloque
+    $colsRange = 'A:H';    // columnas que se copian para encabezado/filas
+
+    // Mapeo de columnas (A..H): No., Punto, Máx, Mín, Prom, NRE, Límite, Observaciones
+    $colNo   = 'A';
+    $colPto  = 'B';
+    $colMax  = 'C';
+    $colMin  = 'D';
+    $colProm = 'E';
+    $colNRE  = 'F';   // <-- ya no hay NRR en la hoja
+    $colLim  = 'G';
+    $colobs  = 'H';
+
+    // 2) Traer mediciones del año + área del puesto
+    $base = DB::table('mediciones_ruido as m')
+        ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+        ->leftJoin('area as a', 'a.id_area', '=', 'p.id_area')
+        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
+        ->orderBy('m.departamento')
+        ->orderBy('m.id_localizacion')
+        ->orderBy('m.punto_medicion');
+
+    // Departamentos (uno por hoja)
+    $departamentos = (clone $base)->pluck('m.departamento')->filter()->unique()->values();
+
+    // Helper para copiar estilos/formatos de una fila
+    $copyRow = function(Worksheet $sheet, int $srcRow, int $dstRow, string $rangeCols)
+    {
+        [$colStart, $colEnd] = explode(':', $rangeCols);
+        for ($col = $colStart; $col <= $colEnd; $col++) {
+            $src = $col.$srcRow;
+            $dst = $col.$dstRow;
+
+            $cell = $sheet->getCell($src);
+            $sheet->setCellValueExplicit($dst, $cell->getValue(), $cell->getDataType());
+            $sheet->duplicateStyle($sheet->getStyle($src), $dst);
+            $sheet->getColumnDimension($col)->setWidth(
+                $sheet->getColumnDimension($col)->getWidth()
+            );
+        }
+
+        // Altura y merges de esa fila
+        $sheet->getRowDimension($dstRow)->setRowHeight(
+            $sheet->getRowDimension($srcRow)->getRowHeight()
+        );
+        foreach ($sheet->getMergeCells() as $merge) {
+            [$mStart, $mEnd] = explode(':', $merge);
+            if (preg_match('/([A-Z]+)(\d+)/', $mStart, $m1) && (int)$m1[2] === $srcRow) {
+                if (preg_match('/([A-Z]+)(\d+)/', $mEnd, $m2)) {
+                    $sheet->mergeCells($m1[1].$dstRow.':'.$m2[1].$dstRow);
+                }
+            }
+        }
+    };
+
+    $first = true; // la primera hoja reutiliza la plantilla original
+
+    foreach ($departamentos as $dept) {
+        // Filas del depto
+        $rows = (clone $base)
+            ->where('m.departamento', $dept)
+            ->select(
+                'm.departamento',
+                'm.nombre_observador',
+                'm.instrumento',
+                'm.serie',
+                'm.marca',
+                'm.id_localizacion',
+                'm.punto_medicion',
+                'm.nivel_maximo',
+                'm.nivel_minimo',
+                'm.nivel_promedio',
+                'm.limites_aceptables',
+                'm.fecha_realizacion_inicio',
+                'm.fecha_realizacion_final',
+                'm.observaciones',             // <-- para la col H
+                'a.area as area_nombre'
+            )
+            ->get();
+
+        if ($rows->isEmpty()) {
+            continue;
+        }
+
+        // Hoja para el departamento (sin colisión de nombres)
+        $sheet = $first ? $tplSheet : $this->ensureSheet($spreadsheet, (string)$dept, $tplSheet);
+        if ($first) { // renombra la primera si sigue llamándose 'Plantilla'
+            $sheet->setTitle($this->xlTitle((string)$dept));
+            $first = false;
+        }
+
+        // ==== Encabezados (tus nuevas coordenadas) ====
+        $minIni = $rows->min('fecha_realizacion_inicio');
+        $maxFin = $rows->max('fecha_realizacion_final');
+        $rangoFechas = '';
+        if ($minIni || $maxFin) {
+            $ini = $minIni ? (new \DateTime($minIni))->format('d/m/Y') : '';
+            $fin = $maxFin ? (new \DateTime($maxFin))->format('d/m/Y') : '';
+            $rangoFechas = trim($ini.' a '.$fin);
+        }
+
+        $sheet->setCellValue('C5', (string)$dept);
+        $sheet->setCellValue('C6', (string)($rows->first()->nombre_observador ?? ''));
+        $sheet->setCellValue('C7', $rangoFechas);
+        $sheet->setCellValue('C8', (string)($rows->first()->instrumento ?? ''));
+        $sheet->setCellValue('B9', (string)($rows->first()->serie ?? ''));
+        $sheet->setCellValue('D9', (string)($rows->first()->marca ?? ''));
+
+        // Limpia cuerpo (por si la plantilla trae algo)
+        for ($r = $firstData; $r <= $firstData + $perPage + 2000; $r++) {
+            foreach (range('A', 'H') as $c) {
+                $sheet->setCellValue($c.$r, '');
+            }
+        }
+
+        // ==== Escribir con paginado
+        $i = 0;
+        foreach ($rows as $rec) {
+            // Calcular promedio, límite, nrr, nre
+            $max = is_numeric($rec->nivel_maximo)  ? (float)$rec->nivel_maximo  : null;
+            $min = is_numeric($rec->nivel_minimo)  ? (float)$rec->nivel_minimo  : null;
+            $prm = (!is_null($max) && !is_null($min))
+                    ? ($max + $min) / 2.0
+                    : (is_numeric($rec->nivel_promedio) ? (float)$rec->nivel_promedio : null);
+
+            $lim = is_numeric($rec->limites_aceptables) ? (float)$rec->limites_aceptables : 85.0;
+
+            // NRR solo para el cálculo de NRE (no se imprime)
+            $nrr = null;
+            $nre = $prm;
+            if ($prm !== null && $prm > $lim) {
+                $nrr = (strcasecmp((string)$rec->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+                $nre = $prm - $nrr;
+            }
+
+            // Paginado (30 por bloque)
+            $page      = intdiv($i, $perPage);
+            $indexInPg = $i % $perPage;
+            $baseRow   = $headerRow + $page * ($perPage + 1);
+            $hdrRow    = $baseRow;
+            $dstRow    = $baseRow + 1 + $indexInPg;
+
+            // Copiar encabezado del bloque para páginas > 0
+            if ($indexInPg === 0 && $page > 0) {
+                $copyRow($sheet, $headerRow, $hdrRow, $colsRange);
+            }
+            // Copiar formato de la primera fila de datos
+            $copyRow($sheet, $firstData, $dstRow, $colsRange);
+
+            // Escribir
+            $sheet->setCellValue($colNo   . $dstRow, $indexInPg + 1);
+            $sheet->setCellValue($colPto  . $dstRow, (string)($rec->punto_medicion ?? ''));
+            $sheet->setCellValue($colMax  . $dstRow, $max === null ? '' : $max);
+            $sheet->setCellValue($colMin  . $dstRow, $min === null ? '' : $min);
+            $sheet->setCellValue($colProm . $dstRow, $prm === null ? '' : round($prm, 2));
+            // $colNRR eliminado – no hay columna NRR
+            $sheet->setCellValue($colNRE  . $dstRow, $nre === null ? '' : round($nre, 2));
+            $sheet->setCellValue($colLim  . $dstRow, round($lim, 0));
+            $sheet->setCellValue($colobs  . $dstRow, (string)($rec->observaciones ?? ''));
+
+            $i++;
+        }
+    }
+
+    // Descargar como XLSX (stream)
+    while (ob_get_level()) { ob_end_clean(); }
+    $filename = "reporte_ruido_departamentos_{$year}.xlsx";
+
+    return response()->streamDownload(function () use ($spreadsheet) {
+        $writer = new Xlsx($spreadsheet);
+        $writer->save('php://output');
+    }, $filename, [
+        'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
+        'Pragma'                    => 'no-cache',
+        'Expires'                   => '0',
+        'Content-Transfer-Encoding' => 'binary',
+    ]);
+}
 
 }

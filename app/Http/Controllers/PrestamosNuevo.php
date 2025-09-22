@@ -489,127 +489,128 @@ class PrestamosNuevo extends Controller
         return (float)$prestamo->monto;
     }
 
- private function aplicarRefinanciamiento(
-    int $idPrestamoNuevo,
-    int $idEmpleado,
-    ?string $fechaPago = null,
-    string $intTipo = 'todos',   // 'todos' | 'parcial' | 'ninguno'
-    float $intMonto = 0.0        // usado si $intTipo === 'parcial'
-): void
-{
-    DB::transaction(function () use ($idPrestamoNuevo, $idEmpleado, $fechaPago, $intTipo, $intMonto) {
-        $fechaPago = $fechaPago ?: Carbon::now()->toDateString();
+    private function aplicarRefinanciamiento(
+        int $idPrestamoNuevo,
+        int $idEmpleado,
+        ?string $fechaPago = null,
+        string $intTipo = 'todos',   // 'todos' | 'parcial' | 'ninguno'
+        float $intMonto = 0.0        // usado si $intTipo === 'parcial'
+    ): void
+    {
+        DB::transaction(function () use ($idPrestamoNuevo, $idEmpleado, $fechaPago, $intTipo, $intMonto) {
+            $fechaPago = $fechaPago ?: Carbon::now()->toDateString();
 
-        // 1) Préstamo anterior activo (distinto del nuevo)
-        $old = DB::table('prestamo')
-            ->where('id_empleado', $idEmpleado)
-            ->where('estado_prestamo', 1)
-            ->where('id_prestamo', '<>', $idPrestamoNuevo)
-            ->orderByDesc('fecha_deposito_prestamo')
-            ->lockForUpdate()
-            ->first();
-        if (!$old) return;
+            // 1) Préstamo anterior activo (distinto del nuevo)
+            $old = DB::table('prestamo')
+                ->where('id_empleado', $idEmpleado)
+                ->where('estado_prestamo', 1)
+                ->where('id_prestamo', '<>', $idPrestamoNuevo)
+                ->orderByDesc('fecha_deposito_prestamo')
+                ->lockForUpdate()
+                ->first();
+            if (!$old) return;
 
-        // 2) Sumas pendientes de cuotas NO pagadas
-        $unpaid = DB::table('historial_cuotas')
-            ->where('id_prestamo', $old->id_prestamo)
-            ->where('pagado', 0)
-            ->selectRaw('COALESCE(SUM(abono_capital),0) AS cap, COALESCE(SUM(abono_intereses),0) AS inte')
-            ->first();
+            // 2) Sumas pendientes de cuotas NO pagadas
+            $unpaid = DB::table('historial_cuotas')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->where('pagado', 0)
+                ->selectRaw('COALESCE(SUM(abono_capital),0) AS cap, COALESCE(SUM(abono_intereses),0) AS inte')
+                ->first();
 
-        $sumCapPend = round((float)($unpaid->cap ?? 0), 2);
-        $sumIntPend = round((float)($unpaid->inte ?? 0), 2);
-        if (($sumCapPend + $sumIntPend) <= 0) return;
+            $sumCapPend = (float)($unpaid->cap ?? 0);
+            $sumIntPend = (float)($unpaid->inte ?? 0);
+            if (($sumCapPend + $sumIntPend) <= 0) return;
 
-        // 3) Intereses ya pagados (para el acumulado)
-        $paid = DB::table('historial_cuotas')
-            ->where('id_prestamo', $old->id_prestamo)
-            ->where('pagado', 1)
-            ->selectRaw('COALESCE(SUM(abono_capital),0) AS cap, COALESCE(SUM(abono_intereses),0) AS inte')
-            ->first();
-        $sumCapPagPrev = round((float)($paid->cap ?? 0), 2);
-        $sumIntPagPrev = round((float)($paid->inte ?? 0), 2);
+            // 3) Intereses ya pagados (para el acumulado)
+            $paid = DB::table('historial_cuotas')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->where('pagado', 1)
+                ->selectRaw('COALESCE(SUM(abono_capital),0) AS cap, COALESCE(SUM(abono_intereses),0) AS inte')
+                ->first();
+            $sumCapPagPrev = (float)($paid->cap ?? 0);
+            $sumIntPagPrev = (float)($paid->inte ?? 0);
 
-        // 4) Cuánto interés se paga en esta "cuota final"
-        $intToPay = match ($intTipo) {
-            'ninguno' => 0.0,
-            'parcial' => max(0.0, min($sumIntPend, round($intMonto, 2))),
-            default   => $sumIntPend, // 'todos'
-        };
-        $intTrasladado = round($sumIntPend - $intToPay, 2); // SOLO informativo
+            // 4) Cuánto interés se paga en esta "cuota final"
+            $intToPay = match ($intTipo) {
+                'ninguno' => 0.0,
+                'parcial' => max(0.0, min($sumIntPend, (float)$intMonto)),
+                default   => $sumIntPend, // 'todos'
+            };
+            $intTrasladado = $sumIntPend - $intToPay; // SOLO informativo
 
-        // 5) Borrar cuotas pendientes
-        DB::table('historial_cuotas')
-            ->where('id_prestamo', $old->id_prestamo)
-            ->where('pagado', 0)
-            ->delete();
+            // 5) Borrar cuotas pendientes
+            DB::table('historial_cuotas')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->where('pagado', 0)
+                ->delete();
 
-        // 6) Insertar la cuota única pagada
-        $nextNum = (int)(DB::table('historial_cuotas')
-            ->where('id_prestamo', $old->id_prestamo)
-            ->max('num_cuota') ?? 0) + 1;
+            // 6) Insertar la cuota única pagada
+            $nextNum = (int)(DB::table('historial_cuotas')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->max('num_cuota') ?? 0) + 1;
 
-        $abCapFinal = $sumCapPend;
-        $abIntFinal = $intToPay;
-        $cuotaFinal = round($abCapFinal + $abIntFinal, 2);
+            $abCapFinal = $sumCapPend;
+            $abIntFinal = $intToPay;
+            $cuotaFinal = $abCapFinal + $abIntFinal;
 
-        // Texto para observaciones (según selección)
-        if ($intTipo === 'todos') {
-            $obsFila = 'Cancelado con refinanciamiento | Intereses pagados: L '.number_format($abIntFinal, 2, '.', '');
-        } elseif ($intTipo === 'parcial') {
-            $obsFila = 'Cancelado con refinanciamiento | Intereses pagados parcialmente: L '
-                     . number_format($abIntFinal, 2, '.', '')
-                     . ' | Resto L '.number_format($intTrasladado, 2, '.', '')
-                     . ' pagado en próximo préstamo';
-        } else { // ninguno
-            $obsFila = 'Cancelado con refinanciamiento | Intereses no pagados: L '
-                     . number_format($sumIntPend, 2, '.', '')
-                     . ' (pagados en próximo préstamo)';
-        }
+            // Texto para observaciones (según selección)
+            if ($intTipo === 'todos') {
+                $obsFila = 'Cancelado con refinanciamiento | Intereses pagados: L '.$abIntFinal;
+            } elseif ($intTipo === 'parcial') {
+                $obsFila = 'Cancelado con refinanciamiento | Intereses pagados parcialmente: L '
+                         . $abIntFinal
+                         . ' | Resto L '.$intTrasladado
+                         . ' pagado en próximo préstamo';
+            } else { // ninguno
+                $obsFila = 'Cancelado con refinanciamiento | Intereses no pagados: L '
+                         . $sumIntPend
+                         . ' (pagados en próximo préstamo)';
+            }
 
-        DB::table('historial_cuotas')->insert([
-            'id_prestamo'      => $old->id_prestamo,
-            'num_cuota'        => $nextNum,
-            'fecha_programada' => $fechaPago,
-            'abono_capital'    => $abCapFinal,
-            'abono_intereses'  => $abIntFinal,                                  // ← lo que realmente se paga
-            'cuota_mensual'    => $cuotaFinal,
-            'cuota_quincenal'  => $cuotaFinal,
-            'saldo_pagado'     => round($sumCapPagPrev + $abCapFinal, 2),
-            'saldo_restante'   => 0.00,
-            'interes_pagado'   => round($sumIntPagPrev + $abIntFinal, 2),       // ← acumulado correcto
-            'interes_restante' => 0.00,
-            'ajuste'           => 0,
-            'fecha_pago_real'  => $fechaPago,
-            'motivo'           => 'REFINANCIAMIENTO',
-            'pagado'           => 1,
-            'observaciones'    => $obsFila,
-        ]);
-
-        // 7) Cerrar préstamo anterior (concatenando observación clara)
-        $obsPrestamo = 'Cancelado con refinanciamiento (nuevo #'.$idPrestamoNuevo.')'
-                     . ' | Cap: L '.number_format($abCapFinal, 2, '.', '');
-        if ($intTipo === 'todos') {
-            $obsPrestamo .= ' | Int pagados: L '.number_format($abIntFinal, 2, '.', '');
-        } elseif ($intTipo === 'parcial') {
-            $obsPrestamo .= ' | Int pagados parcial: L '.number_format($abIntFinal, 2, '.', '')
-                          . ' | Resto L '.number_format($intTrasladado, 2, '.', '')
-                          . ' pagado en próximo préstamo';
-        } else {
-            $obsPrestamo .= ' | Int no pagados: L '.number_format($sumIntPend, 2, '.', '')
-                          . ' (pagados en próximo préstamo)';
-        }
-
-        DB::table('prestamo')
-            ->where('id_prestamo', $old->id_prestamo)
-            ->update([
-                'estado_prestamo' => 0,
-                'observaciones'   => DB::raw(
-                    "CONCAT(COALESCE(observaciones,''),' | ".addslashes($obsPrestamo)."')"
-                ),
+            DB::table('historial_cuotas')->insert([
+                'id_prestamo'      => $old->id_prestamo,
+                'num_cuota'        => $nextNum,
+                'fecha_programada' => $fechaPago,
+                'abono_capital'    => $abCapFinal,
+                'abono_intereses'  => $abIntFinal,
+                'cuota_mensual'    => $cuotaFinal,
+                'cuota_quincenal'  => $cuotaFinal,
+                'saldo_pagado'     => $sumCapPagPrev + $abCapFinal,
+                'saldo_restante'   => 0.00,
+                'interes_pagado'   => $sumIntPagPrev + $abIntFinal,
+                'interes_restante' => 0.00,
+                'ajuste'           => 0,
+                'fecha_pago_real'  => $fechaPago,
+                'motivo'           => 'REFINANCIAMIENTO',
+                'pagado'           => 1,
+                'observaciones'    => $obsFila,
             ]);
-    });
-}
+
+            // 7) Cerrar préstamo anterior (concatenando observación clara)
+            $obsPrestamo = 'Cancelado con refinanciamiento (nuevo #'.$idPrestamoNuevo.')'
+                         . ' | Cap: L '.$abCapFinal;
+            if ($intTipo === 'todos') {
+                $obsPrestamo .= ' | Int pagados: L '.$abIntFinal;
+            } elseif ($intTipo === 'parcial') {
+                $obsPrestamo .= ' | Int pagados parcial: L '.$abIntFinal
+                              . ' | Resto L '.$intTrasladado
+                              . ' pagado en próximo préstamo';
+            } else {
+                $obsPrestamo .= ' | Int no pagados: L '.$sumIntPend
+                              . ' (pagados en próximo préstamo)';
+            }
+
+            DB::table('prestamo')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->update([
+                    'estado_prestamo' => 0,
+                    'observaciones'   => DB::raw(
+                        "CONCAT(COALESCE(observaciones,''),' | ".addslashes($obsPrestamo)."')"
+                    ),
+                ]);
+        });
+    }
+
 
     // ====== Helper: normaliza strings tipo "1.234,56", "L. 2,075.83", "$1,200" ======
     private function parseMoney($v): float

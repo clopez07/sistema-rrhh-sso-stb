@@ -129,7 +129,7 @@
         <!-- Card: Medición de Ruido e Iluminación (SIN CAMBIOS) -->
         <div class="col">
             <div class="max-w-sm bg-white border border-gray-200 rounded-lg shadow-sm">
-            <a href="/localizacion">
+            <a href="/mediciones/captura">
                 <img class="rounded-t-lg" src="{{ asset('img/mediciones.JPG') }}" alt="" />
                 <div class="p-5">
                 <h5 class="mb-2 text-2xl font-bold tracking-tight">Medición de Ruido e Iluminación</h5>

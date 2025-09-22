@@ -1642,6 +1642,34 @@ public function destroymedidasriesgo($id_riesgo, $id_area)
 
         return redirect()->back()->with('success', 'Registrado correctamente.');
     }
+
+    // Actualiza un estándar de ruido
+    public function updateestandarruido(Request $request, $id)
+    {
+        $data = $request->validate([
+            'id_localizacion' => 'required|integer',
+            'nivel_ruido' => 'required|string|max:255',
+            'tiempo_max_exposicion' => 'required|string|max:255',
+        ]);
+
+        DB::table('estandar_ruido')
+            ->where('id_estandar_ruido', $id)
+            ->update($data);
+
+        return redirect()->back()->with('ok', 'Estándar de ruido actualizado correctamente');
+    }
+
+    // Elimina un estándar de ruido
+    public function destroyestandarruido($id)
+    {
+        DB::table('estandar_ruido')
+            ->where('id_estandar_ruido', $id)
+            ->delete();
+
+        return redirect()->back()->with('ok', 'Estándar de ruido eliminado correctamente');
+    }
+
+    
         
 // ------------------------------------------------------------------------------------------------------------
 
@@ -1671,6 +1699,33 @@ public function destroymedidasriesgo($id_riesgo, $id_area)
         return redirect()->back()->with('success', 'Registrado correctamente.');
     }
 
+    // Actualiza un estándar de temperatura
+    public function updateestandartemperatura(Request $request, $id)
+    {
+        $data = $request->validate([
+            'id_localizacion' => 'required|integer',
+            'rango_temperatura' => 'required|string|max:255',
+        ]);
+
+        DB::table('estandar_temperatura')
+            ->where('id_estandar_temperatura', $id)
+            ->update($data);
+
+        return redirect()->back()->with('ok', 'Estándar de temperatura actualizado correctamente');
+    }
+
+    // Elimina un estándar de temperatura
+    public function destroyestandartemperatura($id)
+    {
+        DB::table('estandar_temperatura')
+            ->where('id_estandar_temperatura', $id)
+            ->delete();
+
+        return redirect()->back()->with('ok', 'Estándar de temperatura eliminado correctamente');
+    }
+
+
+    
 // ------------------------------------------------------------------------------------------------------------
         public function estandares(Request $request)
     {

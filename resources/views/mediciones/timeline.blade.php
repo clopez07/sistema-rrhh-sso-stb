@@ -73,9 +73,15 @@
       </datalist>
     </div>
     <button class="btn" type="submit">Aplicar</button>
+
+    <a class="btn" href="{{ route('mediciones.timeline.excel', request()->query()) }}"
+      style="background:#10b981;border-color:#10b981;">
+      Descargar Excel
+    </a>
+
     @if($locFilter || $yearFrom || $yearTo)
       <a class="btn" href="{{ route('mediciones.timeline') }}"
-         style="background:#64748b;border-color:#64748b;">Quitar filtros</a>
+        style="background:#64748b;border-color:#64748b;">Quitar filtros</a>
     @endif
   </form>
 
