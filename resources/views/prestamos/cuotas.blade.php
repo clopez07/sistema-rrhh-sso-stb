@@ -140,16 +140,16 @@
                     <td class="px-6 py-4">
                         {{ $cuota->fecha_deposito_prestamo }}
                     </td>
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4" style="background-color: #90D4D0">
                         {{ $cuota->fecha_programada }}
                     </td>
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4" style="background-color: #D8ABE0">
                         {{ $cuota->abono_capital }}
                     </td>
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4" style="background-color: #D8ABE0">
                         {{ $cuota->abono_intereses }}
                     </td>
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4" style="background-color: #E3C598">
                         {{ $cuota->cuota_mensual }}
                     </td>
                     <td class="px-6 py-4">

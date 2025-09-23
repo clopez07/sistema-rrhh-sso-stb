@@ -117,7 +117,7 @@
                             <a href="/cuotas-especiales" class="{{ request()->is('cuotas-especiales*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }} text-gray-900 hover:underline">Depósitos y cobros extraordinarios</a>
                         </li>
                         <li>
-                            <a href="#" class="{{ request()->is('#*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }} text-gray-900 hover:underline">Resumen Mensual</a>
+                            <a href="/prestamos/resumen-mensual" class="{{ request()->is('#*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }} text-gray-900 hover:underline">Resumen Mensual</a>
                         </li>
                           <a id="open-reporte-prestamos"
                             class="{{ request()->is('#*') ? 'text-blue-600 underline font-semibold' : 'text-gray-900 hover:underline' }} text-gray-900 hover:underline">

@@ -803,7 +803,5 @@ public function empleadosprestamo(Request $request)
             'cuotas' => $cuotas,
         ]);
     }
-
-
 }
 

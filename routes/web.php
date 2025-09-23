@@ -41,6 +41,7 @@ use App\Http\Controllers\AjustesPrestamosController;
 use App\Http\Controllers\MedicionesController;
 use App\Http\Controllers\EppRequeridosController;
 use App\Http\Controllers\PrestamoRenunciaController;
+use App\Http\Controllers\PrestamosResumenController;
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/evaluacion-riesgos/puestos', [EvaluacionRiesgosExportController::class, 'puestos'])->name('evaluacion.riesgos.puestos');
@@ -573,6 +574,18 @@ Route::post('/prestamos/renuncia/confirmar', [PrestamoRenunciaController::class,
     Route::get('/prestamos/detalle/{id}', [Prestamos::class, 'detallePrestamo'])
     ->whereNumber('id')
     ->name('prestamos.detalle');
+
+    Route::get('/prestamos/resumen-mensual', [PrestamosResumenController::class, 'index'])
+    ->name('prestamos.resumen.index');
+
+Route::post('/prestamos/resumen-mensual/guardar', [PrestamosResumenController::class, 'store'])
+    ->name('prestamos.resumen.store');
+
+    Route::post('/prestamos/resumen-mensual/recalcular', [PrestamosResumenController::class, 'recalcular'])
+    ->name('prestamos.resumen.recalcular');
+
+Route::post('/prestamos/resumen-mensual/eliminar', [PrestamosResumenController::class, 'destroy'])
+    ->name('prestamos.resumen.eliminar');
 });
 
 
