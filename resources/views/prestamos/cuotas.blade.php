@@ -105,18 +105,6 @@
                         Cuota Quincenal
                     </th>
                     <th scope="col" class="px-6 py-3">
-                        Saldo Pagado
-                    </th>
-                    <th scope="col" class="px-6 py-3">
-                        Saldo Restante
-                    </th>
-                    <th scope="col" class="px-6 py-3">
-                        Interés Pagado
-                    </th>
-                    <th scope="col" class="px-6 py-3">
-                        Interés Restante
-                    </th>
-                    <th scope="col" class="px-6 py-3">
                         Estado
                     </th>
                     <th scope="col" class="px-6 py-3">Observaciones</th>
@@ -166,18 +154,6 @@
                     </td>
                     <td class="px-6 py-4">
                         {{ $cuota->cuota_quincenal }}
-                    </td>
-                    <td class="px-6 py-4">
-                        {{ $cuota->saldo_pagado }}
-                    </td>
-                    <td class="px-6 py-4">
-                        {{ $cuota->saldo_restante }}
-                    </td>
-                    <td class="px-6 py-4">
-                        {{ $cuota->interes_pagado }}
-                    </td>
-                    <td class="px-6 py-4">
-                        {{ $cuota->interes_restante }}
                     </td>
 
                     {{-- Pagado: muestra "SÃ­"/"No" y aplica acento rojo cuando es SÃ­ --}}

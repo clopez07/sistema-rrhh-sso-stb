@@ -226,7 +226,7 @@ class ReporteIluminacionExport
     $row++;
 
     // Misma fila: centro y derecha
-    $sheet->setCellValue("B{$row}", 'VERSION 2018');
+    $sheet->setCellValue("B{$row}", '1 VERSION 2018');
     $sheet->getStyle("B{$row}")->applyFromArray($small)->applyFromArray($center);
 
     $sheet->setCellValue("C{$row}", 'STB/SSO/R040');

@@ -191,51 +191,43 @@
 
       {{-- ===== Datos para JS (puestos) ===== --}}
       <script>
-        window.PUESTOS = @json($puestos); // [{id_puesto_trabajo_matriz, puesto_trabajo_matriz, id_localizacion}, ...]
+        window.PUESTOS = @json($puestos);
+        window.PUESTO_BY_ID = {};
+        for (const p of window.PUESTOS) {
+          window.PUESTO_BY_ID[p.id_puesto_trabajo_matriz] = p.puesto_trabajo_matriz;
+        }
       </script>
 
-      {{-- ===== JS: filas dinámicas + datalist de localización/puestos ===== --}}
+      {{-- ===== JS: filas dinámicas + datalist de localización/puestos (versión limpia) ===== --}}
       <script>
       (function(){
-        // --- Localización (datalist -> hidden id) ---
+        // ---------- Referencias base ----------
+        const form     = document.querySelector('form[action="{{ route('mediciones.captura.store') }}"]') || document.querySelector('form');
         const inputTxt = document.getElementById('localizacion_txt');
         const hiddenId = document.getElementById('id_localizacion');
         const help     = document.getElementById('loc_help');
-        const options  = Array.from(document.querySelectorAll('#dl-localizaciones option'));
+        const locOpts  = Array.from(document.querySelectorAll('#dl-localizaciones option'));
 
-        function syncLoc() {
-          const val = (inputTxt.value || '').trim();
-          const opt = options.find(o => o.value === val);
-          if (opt) { hiddenId.value = opt.dataset.id; help.textContent = ''; }
-          else     { hiddenId.value = ''; help.textContent = '⚠️ Selecciona una opción de la lista para registrar el ID.'; }
-        }
-        inputTxt.addEventListener('change', syncLoc);
-        inputTxt.addEventListener('blur', syncLoc);
-
-        const form = inputTxt.closest('form');
-        form.addEventListener('submit', function(e){
-          syncLoc();
-          syncAllPuestos(); // asegura que todos los hidden coincidan
-          if (!hiddenId.value) {
-            e.preventDefault();
-            inputTxt.focus();
-            help.textContent = '⚠️ Debes elegir una localización de la lista.';
-          }
-        });
-
-        // --- Helpers puestos: usar SIEMPRE toda la lista (sin filtrar)
         const dlPuestos = document.getElementById('dl-puestos');
+        const ruidoBody = document.querySelector('#tbl-ruido tbody');
+        const luxBody   = document.querySelector('#tbl-lux tbody');
+
+        let idxR = 0, idxL = 0;
+        const prefillUrl = @json(route('mediciones.captura.prefill'));
+
+        // ---------- Helpers ----------
         function syncPuestoInput(txtEl, hiddenEl) {
           const val = (txtEl.value || '').trim();
           const opt = Array.from(dlPuestos.options).find(o => o.value === val);
           hiddenEl.value = opt ? opt.dataset.id : '';
         }
+        function q(sel){ return document.querySelector(sel); }
+        function setIf(elSelector, val){
+          const el = q(elSelector);
+          if (el && val != null && val !== '') el.value = val;
+        }
 
-        // --- Tablas dinámicas ---
-        const ruidoBody = document.querySelector('#tbl-ruido tbody');
-        const luxBody   = document.querySelector('#tbl-lux tbody');
-        let idxR = 0, idxL = 0;
-
+        // ---------- Filas dinámicas ----------
         function addRuidoRow() {
           const rowIdx = idxR++;
           const tr = document.createElement('tr');
@@ -254,11 +246,11 @@
             <td class="px-2 py-1" style="text-align:center;"><button type="button" class="rm-row btn" aria-label="Eliminar fila">✕</button></td>
           `;
           ruidoBody.appendChild(tr);
-
           const txt = document.getElementById(`ruido_puesto_txt_${rowIdx}`);
           const hid = document.getElementById(`ruido_puesto_id_${rowIdx}`);
           txt.addEventListener('change', () => syncPuestoInput(txt, hid));
           txt.addEventListener('blur',   () => syncPuestoInput(txt, hid));
+          return { rowIdx, tr };
         }
 
         function addLuxRow() {
@@ -276,15 +268,14 @@
             <td class="px-2 py-1" style="text-align:center;"><button type="button" class="rm-row btn" aria-label="Eliminar fila">✕</button></td>
           `;
           luxBody.appendChild(tr);
-
           const txt = document.getElementById(`lux_puesto_txt_${rowIdx}`);
           const hid = document.getElementById(`lux_puesto_id_${rowIdx}`);
           txt.addEventListener('change', () => syncPuestoInput(txt, hid));
           txt.addEventListener('blur',   () => syncPuestoInput(txt, hid));
+          return { rowIdx, tr };
         }
 
         function syncAllPuestos() {
-          // Fuerza la sincronización texto->hidden para todas las filas antes de enviar
           for (let i=0;i<idxR;i++) {
             const txt = document.getElementById(`ruido_puesto_txt_${i}`);
             const hid = document.getElementById(`ruido_puesto_id_${i}`);
@@ -297,18 +288,124 @@
           }
         }
 
-        document.getElementById('btn-add-ruido').addEventListener('click', addRuidoRow);
-        document.getElementById('btn-add-lux').addEventListener('click', addLuxRow);
+        // ---------- Prefill ----------
+        function applyTemplate(data){
+          if (!data || !data.ok) return;
 
-        document.addEventListener('click', function(e){
-          if (e.target.classList.contains('rm-row')) {
-            e.target.closest('tr').remove();
+          // Cabecera sugerida
+          if (data.base) {
+            setIf('input[name="departamento"]',      data.base.departamento);
+            setIf('input[name="instrumento_ruido"]', data.base.instrumento_ruido);
+            setIf('input[name="serie_ruido"]',       data.base.serie_ruido);
+            setIf('input[name="marca_ruido"]',       data.base.marca_ruido);
+            setIf('input[name="nrr"]',               data.base.nrr);
+            setIf('input[name="instrumento_lux"]',   data.base.instrumento_lux);
+            setIf('input[name="serie_lux"]',         data.base.serie_lux);
+            setIf('input[name="marca_lux"]',         data.base.marca_lux);
+          }
+
+          // Limpiar tablas
+          ruidoBody.innerHTML = ''; luxBody.innerHTML = '';
+          idxR = 0; idxL = 0;
+
+          // Rellenar RUIdo
+          (data.ruido_rows || []).forEach(row => {
+            const { rowIdx } = addRuidoRow();
+            const puestoName = (window.PUESTO_BY_ID && window.PUESTO_BY_ID[row.id_puesto_trabajo_matriz]) || '';
+            setIf(`input[name="ruido_puntos[${rowIdx}][punto_medicion]"]`, row.punto_medicion || '');
+            setIf(`#ruido_puesto_id_${rowIdx}`, row.id_puesto_trabajo_matriz || '');
+            setIf(`#ruido_puesto_txt_${rowIdx}`, puestoName);
+            if (row.limites_aceptables != null) {
+              setIf(`input[name="ruido_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
+            }
+          });
+
+          // Rellenar ILUMINACIÓN
+          (data.lux_rows || []).forEach(row => {
+            const { rowIdx } = addLuxRow();
+            const puestoName = (window.PUESTO_BY_ID && window.PUESTO_BY_ID[row.id_puesto_trabajo_matriz]) || '';
+            setIf(`input[name="iluminacion_puntos[${rowIdx}][punto_medicion]"]`, row.punto_medicion || '');
+            setIf(`#lux_puesto_id_${rowIdx}`, row.id_puesto_trabajo_matriz || '');
+            setIf(`#lux_puesto_txt_${rowIdx}`, puestoName);
+            if (row.limites_aceptables != null) {
+              setIf(`input[name="iluminacion_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
+            }
+          });
+
+          // Fallback: si no hay filas en la plantilla, deja una vacía de cada tipo
+          if ((data.ruido_rows || []).length === 0) addRuidoRow();
+          if ((data.lux_rows  || []).length === 0) addLuxRow();
+
+          // Ayuda visual
+          if (help) {
+            const yrR = data.year_ruido ? `Ruido: ${data.year_ruido}` : 'Ruido: sin datos';
+            const yrL = data.year_lux  ? `Iluminación: ${data.year_lux}` : 'Iluminación: sin datos';
+            help.textContent = `Plantilla aplicada (${yrR} / ${yrL}).`;
+          }
+        }
+
+        async function fetchAndApplyPrefill(){
+          if (!hiddenId || !hiddenId.value) return;
+          try{
+            const url = `${prefillUrl}?id_localizacion=${encodeURIComponent(hiddenId.value)}`;
+            const res = await fetch(url, { headers: { 'Accept':'application/json' }});
+            if (!res.ok) return;
+            const data = await res.json();
+            applyTemplate(data);
+          }catch(err){
+            console.error('Prefill error', err);
+          }
+        }
+
+        // ---------- Localización: datalist -> hidden + prefill ----------
+        function syncLoc() {
+          const val = (inputTxt.value || '').trim();
+          const opt = locOpts.find(o => o.value === val);
+          if (opt) {
+            hiddenId.value = opt.dataset.id;
+            help.textContent = '';
+            fetchAndApplyPrefill(); // cargar plantilla al tener ID válido
+          } else {
+            hiddenId.value = '';
+            help.textContent = '⚠️ Selecciona una opción de la lista para registrar el ID.';
+          }
+        }
+        inputTxt.addEventListener('change', syncLoc);
+        inputTxt.addEventListener('blur',   syncLoc);
+        // Si el aside cambia el hidden (dispatchEvent('change')), también prefilleamos
+        hiddenId.addEventListener('change', fetchAndApplyPrefill);
+
+        // ---------- Form submit: asegurar hidden de puestos ----------
+        form.addEventListener('submit', function(e){
+          syncLoc();
+          syncAllPuestos();
+          if (!hiddenId.value) {
+            e.preventDefault();
+            inputTxt.focus();
+            help.textContent = '⚠️ Debes elegir una localización de la lista.';
           }
         });
 
-        // Primeras filas por defecto
-        addRuidoRow();
-        addLuxRow();
+        // ---------- Botones agregar fila ----------
+        document.getElementById('btn-add-ruido').addEventListener('click', addRuidoRow);
+        document.getElementById('btn-add-lux').addEventListener('click', addLuxRow);
+
+        // ---------- Eliminar fila ----------
+        document.addEventListener('click', function(e){
+          if (e.target.classList.contains('rm-row')) {
+            e.target.closest('tr')?.remove();
+          }
+        });
+
+        // ---------- Estado inicial ----------
+        if (hiddenId && hiddenId.value) {
+          // Si viene de old('id_localizacion'), intenta prefillear
+          fetchAndApplyPrefill();
+        } else {
+          // Si no hay selección, deja una fila de cada tipo
+          addRuidoRow();
+          addLuxRow();
+        }
       })();
       </script>
     </div>

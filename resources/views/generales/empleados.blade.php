@@ -361,14 +361,14 @@
                                             </div>
                                             <div>
                                                 <label class="block mb-2 text-sm font-medium text-gray-900">Puesto (Matriz)</label>
-                                                <select name="id_puesto_trabajo_matriz" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5" required>
-                                                    <option value="" disabled @selected(is_null($empleado->id_puesto_trabajo_matriz))>Seleccione el puesto matriz</option>
+                                                <input list="puestos-matriz-list-{{ $empleado->id_empleado }}" id="input-puesto-matriz-{{ $empleado->id_empleado }}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5" value="{{ $empleado->puesto_trabajo_matriz ?? '' }}">
+                                                <input type="hidden" name="id_puesto_trabajo_matriz" id="hidden-puesto-matriz-{{ $empleado->id_empleado }}" value="{{ $empleado->id_puesto_trabajo_matriz }}">
+                                                <datalist id="puestos-matriz-list-{{ $empleado->id_empleado }}">
+                                                    <option value="" label="Sin Asignar"></option>
                                                     @foreach($puestosMatriz as $puestoMatriz)
-                                                        <option value="{{ $puestoMatriz->id_puesto_trabajo_matriz }}" @if($empleado->id_puesto_trabajo_matriz == $puestoMatriz->id_puesto_trabajo_matriz) selected @endif>
-                                                            {{ $puestoMatriz->puesto_trabajo_matriz }}
-                                                        </option>
+                                                        <option value="{{ $puestoMatriz->puesto_trabajo_matriz }}" data-id="{{ $puestoMatriz->id_puesto_trabajo_matriz }}"></option>
                                                     @endforeach
-                                                </select>
+                                                </datalist>
                                             </div>
                                             <div>
                                                 <label class="block mb-2 text-sm font-medium text-gray-900">Estado</label>
@@ -425,9 +425,39 @@
         {{ $empleados->links() }}
     </div>
 
-    <!-- jQuery -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-wh/28A+4+RgPvYyqSRkFegJwCeMCn4m1BM5/1+Yl/0uKCU+5yr3phUZJf2o24RRA" crossorigin="anonymous"></script>
+    <!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+$(function() {
+    $('[id^="edit-modal-"]').each(function() {
+        var modal = $(this);
+        var empleadoId = modal.attr('id').replace('edit-modal-', '');
+        var input = modal.find('#input-puesto-matriz-' + empleadoId);
+        var hidden = modal.find('#hidden-puesto-matriz-' + empleadoId);
+        var datalist = modal.find('#puestos-matriz-list-' + empleadoId)[0];
+        modal.find('form').on('submit', function(e) {
+            var value = input.val();
+            var id = '';
+            if (value === '' || value === 'Sin Asignar') {
+                id = '';
+            } else {
+                for (var i = 0; i < datalist.options.length; i++) {
+                    if (datalist.options[i].value === value) {
+                        id = datalist.options[i].getAttribute('data-id');
+                        break;
+                    }
+                }
+            }
+            hidden.val(id);
+        });
+    });
+});
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-wh/28A+4+RgPvYyqSRkFegJwCeMCn4m1BM5/1+Yl/0uKCU+5yr3phUZJf2o24RRA" crossorigin="anonymous"></script>
     </body>
 </html>

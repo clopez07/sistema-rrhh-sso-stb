@@ -16,7 +16,8 @@ class MatrizPuestosEppController extends Controller
 
         $puestosQuery = DB::table('puesto_trabajo_matriz as ptm')
             ->leftJoin('departamento as d', 'ptm.id_departamento', '=', 'd.id_departamento')
-            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento');
+            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento')
+            ->where('ptm.estado', 1);
 
         if ($buscarPuesto !== '') {
             $needle = mb_strtolower($buscarPuesto, 'UTF-8');

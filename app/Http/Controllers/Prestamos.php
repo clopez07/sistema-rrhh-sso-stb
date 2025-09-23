@@ -24,6 +24,7 @@ public function empleadosprestamo(Request $request)
         ->join('empleado as emp', 'ep.id_empleado', '=', 'emp.id_empleado')
         ->join('prestamo as p', 'ep.id_prestamo', '=', 'p.id_prestamo')
         ->select(
+            'p.id_prestamo',  
             'emp.codigo_empleado',
             'emp.nombre_completo',
             'p.num_prestamo',
@@ -742,6 +743,67 @@ public function empleadosprestamo(Request $request)
         DB::table('prestamo')->where('id_prestamo', $id)->delete();
         return redirect()->back()->with('success', 'Préstamo eliminado correctamente');
     }
+
+    public function detallePrestamo(int $id)
+    {
+        $prestamo = DB::table('prestamo as p')
+            ->leftJoin('empleado as e', 'p.id_empleado', '=', 'e.id_empleado')
+            ->select(
+                'p.id_prestamo',
+                'p.num_prestamo',
+                'p.monto',
+                'p.total_intereses',
+                'p.fecha_deposito_prestamo',
+                'p.estado_prestamo',
+                'e.codigo_empleado',
+                'e.nombre_completo'
+            )
+            ->where('p.id_prestamo', $id)
+            ->first();
+
+        if (!$prestamo) {
+            return response()->json(['ok' => false, 'msg' => 'Préstamo no encontrado'], 404);
+        }
+
+        $cuotas = DB::table('historial_cuotas')
+        ->where('id_prestamo', $id)
+        ->orderBy('num_cuota')
+        ->select(
+            'num_cuota',
+            'fecha_programada',
+            DB::raw('COALESCE(cuota_quincenal, cuota_mensual, 0) as cuota_quincenal'),
+            'pagado',
+            'observaciones'
+        )
+        ->get();
+
+        if ($cuotas->isEmpty()) {
+            return response()->json([
+                'ok' => true,
+                'resumen' => [
+                    'pagadas'    => 0,
+                    'pendientes' => 0,
+                    'totales'    => 0,
+                ],
+                'cuotas' => [],
+            ]);
+        }
+
+        $totales    = $cuotas->count();
+        $pagadas    = $cuotas->where('pagado', 1)->count();
+        $pendientes = $totales - $pagadas;
+
+        return response()->json([
+            'ok' => true,
+            'resumen' => [
+                'pagadas'    => $pagadas,
+                'pendientes' => $pendientes,
+                'totales'    => $totales,
+            ],
+            'cuotas' => $cuotas,
+        ]);
+    }
+
 
 }
 

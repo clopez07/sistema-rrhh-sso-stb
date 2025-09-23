@@ -237,238 +237,272 @@ class PrestamosNuevo extends Controller
     }
 
     /**
-     * Genera calendario mezclando Planilla + Depósitos (único/varios) + Extras.
-     * - Resta (depósitos + extras) del capital que irá a planilla.
-     * - Último depósito se ajusta si el remanente es menor.
-     * - En la misma fecha: DEPOSITO -> PLANILLA -> EXTRA.
-     * - El "plazo" de depósitos puede ser DECIMAL (ej. 3.5).
-     */
-    private function generarCalendarioConDepositosYExtrasV2(
-        int $idPrestamo,
-        float $monto,
-        float $cuotaCapitalMensual,
-        float $totalIntereses,
-        float $plazoMeses,
-        ?string $fechaDeposito,
-        ?string $fechaPrimera,
-        string $frecuencia,
-        ?array $depositosCfg = null,     // ['modo'=>'unico|varios','total','cuota','plazo (float)','fecha_inicio']
-        ?array $soloInteresConfig = null,  // ['modo'=>'total|parcial','monto_planificado']
-        array $extrasDetallados = []     // ['label','monto','fecha'?]
-    ): void {
-        // === 1) Fechas/base ===
-        $fechaInicio = $fechaPrimera ?: $fechaDeposito ?: Carbon::now()->toDateString();
-        $fIni = Carbon::parse($fechaInicio)->startOfDay();
+ * Genera calendario mezclando Planilla + (al final) Depósitos + Extras.
+ * - Primero programa TODAS las cuotas de planilla desde fecha_primera_cuota.
+ * - Luego, coloca los depósitos y, después, los cobros extraordinarios, todos DESPUÉS
+ *   de la última fecha de planilla (se respeta el número de depósitos y su monto).
+ * - Se sigue restando (depósitos + extras) del capital destinado a planilla para no
+ *   duplicar cobros de capital.
+ */
+private function generarCalendarioConDepositosYExtrasV2(
+    int $idPrestamo,
+    float $monto,
+    float $cuotaCapitalMensual,
+    float $totalIntereses,
+    float $plazoMeses,
+    ?string $fechaDeposito,
+    ?string $fechaPrimera,
+    string $frecuencia,
+    ?array $depositosCfg = null,     // ['modo'=>'unico|varios','total','cuota','plazo (float)','fecha_inicio']
+    ?array $soloInteresConfig = null,  // ['modo'=>'total|parcial','monto_planificado']
+    array $extrasDetallados = []     // ['label','monto','fecha'?]  (la fecha ya NO determina el orden)
+): void {
+    // === 1) Fechas/base ===
+    $fechaInicio = $fechaPrimera ?: $fechaDeposito ?: Carbon::now()->toDateString();
+    $fIni = Carbon::parse($fechaInicio)->startOfDay();
 
-        $frecuencia = strtolower(trim($frecuencia));
-        $factorPeriodo = match ($frecuencia) {
-            'mensual'   => 1.0,
-            'quincenal' => 2.0,
-            'bisemanal' => 2.0,
-            'semanal'   => 4.0,
-            default     => 2.0,
-        };
+    $frecuencia = strtolower(trim($frecuencia));
+    $factorPeriodo = match ($frecuencia) {
+        'mensual'   => 1.0,
+        'quincenal' => 2.0,
+        'bisemanal' => 2.0,
+        'semanal'   => 4.0,
+        default     => 2.0,
+    };
 
-        $planInteresObjetivo = $soloInteresConfig['monto_planificado'] ?? $totalIntereses;
-        $plazoNormalizado    = $plazoMeses > 0 ? $plazoMeses : 1.0;
-        $interesMensualPlan  = $planInteresObjetivo / $plazoNormalizado;
-        $baseCapPeriodo      = $factorPeriodo > 0 ? ($cuotaCapitalMensual / $factorPeriodo) : $cuotaCapitalMensual;
-        $cuotaMensualReferencia = $cuotaCapitalMensual + $interesMensualPlan;
+    // Interés planificado (soporta modo “solo interés”)
+    $planInteresObjetivo = $soloInteresConfig['monto_planificado'] ?? $totalIntereses;
+    $plazoNormalizado    = $plazoMeses > 0 ? $plazoMeses : 1.0;
+    $interesMensualPlan  = $plazoNormalizado > 0 ? ($planInteresObjetivo / $plazoNormalizado) : 0.0;
 
-        // === 2) Depósitos (eventos) y total para restar del capital planilla ===
-        $depTotal   = 0.0;
-        $depEventos = [];
+    $baseCapPeriodo = $factorPeriodo > 0 ? ($cuotaCapitalMensual / $factorPeriodo) : $cuotaCapitalMensual;
+    $cuotaMensualReferencia = $cuotaCapitalMensual + $interesMensualPlan;
 
-        if ($depositosCfg && ($depositosCfg['modo'] ?? '') === 'unico') {
-            $depTotal = max(0.0, (float)$depositosCfg['total']);
-            $fec      = $depositosCfg['fecha_inicio'] ?? $fechaDeposito ?? $fechaInicio;
-            $depEventos[] = [
-                'tipo'  => 'deposito',
-                'fecha' => Carbon::parse($fec)->toDateString(),
-                'monto' => $depTotal,
-            ];
-        } elseif ($depositosCfg && ($depositosCfg['modo'] ?? '') === 'varios') {
-            $depTotal = max(0.0, (float)$depositosCfg['total']);
-            $cuotaDep = max(0.0, (float)$depositosCfg['cuota']);
-            $plazoDep = max(0.0, (float)$depositosCfg['plazo']); // DECIMAL
-            $fec0     = $depositosCfg['fecha_inicio'] ?? $fechaDeposito ?? $fechaInicio;
+    // === 2) Depósitos (solo calculamos montos/slots; fechas se reasignan AL FINAL) ===
+    $depTotal   = 0.0;
+    $depSlices  = [];         // lista de montos por cada depósito, en orden
+    $depEsVarios = false;
 
-            $rest   = $depTotal;
-            $fd     = Carbon::parse($fec0)->startOfDay();
-            $nSlots = max(1, (int)ceil($plazoDep)); // ej. 3.5 -> 4 depósitos
+    if ($depositosCfg) {
+        if (($depositosCfg['modo'] ?? '') === 'unico') {
+            $m = max(0.0, (float)($depositosCfg['total'] ?? 0));
+            if ($m > 0) {
+                $depTotal  = $m;
+                $depSlices = [$m];
+                $depEsVarios = false;
+            }
+        } elseif (($depositosCfg['modo'] ?? '') === 'varios') {
+            $depTotal = max(0.0, (float)($depositosCfg['total'] ?? 0));
+            $cuotaDep = max(0.0, (float)($depositosCfg['cuota'] ?? 0));
+            $plazoDep = max(0.0, (float)($depositosCfg['plazo'] ?? 0)); // DECIMAL
+            if ($depTotal > 0 && ($cuotaDep > 0 || $plazoDep > 0)) {
+                $rest   = $depTotal;
+                $nSlots = max(1, (int)ceil($plazoDep > 0 ? $plazoDep : ($depTotal / max(0.01, $cuotaDep))));
+                for ($i=1; $i <= $nSlots && $rest > 0.0; $i++) {
+                    $m = min($cuotaDep > 0 ? $cuotaDep : $rest, $rest);
+                    $depSlices[] = $m;
+                    $rest -= $m;
+                }
+                $depEsVarios = true;
+            }
+        }
+    }
 
-            for ($i=1; $i <= $nSlots && $rest > 0.0; $i++) {
-                $m = min($cuotaDep > 0 ? $cuotaDep : $rest, $rest);
+    // === 3) Extras (solo sumatoria; fechas se reasignan AL FINAL) ===
+    $sumaExtras = 0.0;
+    $extrasData = []; // preserva orden de entrada
+    foreach ($extrasDetallados as $ex) {
+        $m = (float)($ex['monto'] ?? 0);
+        if ($m <= 0) continue;
+        $sumaExtras += $m;
+        $extrasData[] = [
+            'label' => $ex['label'] ?? null,
+            'monto' => $m,
+        ];
+    }
+
+    // === 4) Capital que irá a planilla ===
+    $capPlanillaBase = max(0.0, $monto - $depTotal - $sumaExtras);
+    if ($soloInteresConfig) { // si es “solo interés”, planilla NO amortiza capital
+        $capPlanillaBase = 0.0;
+    }
+
+    // === 5) Número de cuotas de planilla ===
+    $maxCuotasPlanilla = max(0, (int)ceil($plazoMeses * $factorPeriodo));
+    if ($soloInteresConfig && $maxCuotasPlanilla === 0 && $planInteresObjetivo > 0) {
+        $maxCuotasPlanilla = 1;
+    }
+
+    if ($soloInteresConfig) {
+        $nPlan = $maxCuotasPlanilla;
+    } else {
+        $nPlan = ($baseCapPeriodo > 0.0 && $capPlanillaBase > 0.0)
+               ? (int)ceil($capPlanillaBase / $baseCapPeriodo)
+               : 0;
+        if ($maxCuotasPlanilla > 0) {
+            $nPlan = min($nPlan, $maxCuotasPlanilla);
+        }
+    }
+
+    $totalInteresesPlan = $soloInteresConfig
+        ? $planInteresObjetivo
+        : (($nPlan > 0) ? $totalIntereses : 0.0);
+
+    // === 6) Fechas de planilla (primero SIEMPRE planilla) ===
+    $fechasPlanilla = [];
+    if ($nPlan > 0) {
+        if ($frecuencia === 'quincenal') {
+            $f = $fIni->copy();
+            for ($i=1; $i <= $nPlan; $i++) {
+                if ($f->day <= 15) { $f = $f->copy()->startOfMonth()->addDays(14); }
+                else { $f = $f->copy()->endOfMonth(); }
+                $fechasPlanilla[] = $f->toDateString();
+                if ($f->day === 15) { $f = $f->copy()->endOfMonth(); }
+                else { $f = $f->copy()->addMonthNoOverflow()->startOfMonth()->addDays(14); }
+            }
+        } elseif ($frecuencia === 'mensual') {
+            $f = $fIni->copy();
+            for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addMonthNoOverflow(); }
+        } elseif ($frecuencia === 'semanal') {
+            $f = $fIni->copy();
+            for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addDays(7); }
+        } else { // bisemanal (14 días)
+            $f = $fIni->copy();
+            for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addDays(14); }
+        }
+    }
+
+    // === 7) Re-ubicar depósitos y extras AL FINAL (después de la última planilla) ===
+    $tailBase = !empty($fechasPlanilla)
+        ? Carbon::parse(end($fechasPlanilla))->copy()
+        : $fIni->copy();
+    $fechaCursor = $tailBase->copy()->addDay(); // para que queden después
+
+    // 7.a) Construir eventos de planilla (primero)
+    $eventos = [];
+    foreach ($fechasPlanilla as $d) {
+        $eventos[] = ['tipo' => 'planilla', 'fecha' => $d];
+    }
+
+    // 7.b) Depósitos (si son varios, espaciamos por MES; si único, mismo día cursor)
+    $depEventos = [];
+    if (!empty($depSlices)) {
+        if ($depEsVarios) {
+            $fd = $fechaCursor->copy(); // primer depósito después de planilla
+            foreach ($depSlices as $m) {
                 $depEventos[] = [
                     'tipo'  => 'deposito',
                     'fecha' => $fd->toDateString(),
                     'monto' => $m,
                 ];
-                $rest = $rest - $m;
-                $fd   = $fd->copy()->addMonthNoOverflow();
+                $fd = $fd->copy()->addMonthNoOverflow();
             }
-        }
-
-        // === 3) Extras (permiten decimales) =====
-        $sumaExtras = 0.0;
-        $extrasEventos = [];
-        foreach ($extrasDetallados as $ex) {
-            $m = (float)($ex['monto'] ?? 0);
-            if ($m <= 0) continue;
-            $sumaExtras += $m;
-            $fec = $ex['fecha'] ?? Carbon::parse($fechaInicio)->endOfMonth()->toDateString();
-            $extrasEventos[] = [
-                'tipo'  => 'extra',
-                'fecha' => Carbon::parse($fec)->toDateString(),
-                'label' => $ex['label'] ?? null,
-                'monto' => $m,
-            ];
-        }
-
-        // === 4) Capital que irá a planilla ===
-        $capPlanillaBase = max(0.0, $monto - $depTotal - $sumaExtras);
-        if ($soloInteresConfig) {
-            $capPlanillaBase = 0.0;
-        }
-
-        // === 5) Número de cuotas de planilla ===
-        $maxCuotasPlanilla = max(0, (int)ceil($plazoMeses * $factorPeriodo));
-        if ($soloInteresConfig && $maxCuotasPlanilla === 0 && $planInteresObjetivo > 0) {
-            $maxCuotasPlanilla = 1;
-        }
-
-        if ($soloInteresConfig) {
-            $nPlan = $maxCuotasPlanilla;
+            // cursor queda en el último depósito + 1 día
+            $fechaCursor = $fd->copy()->addDay();
         } else {
-            $nPlan = ($baseCapPeriodo > 0.0 && $capPlanillaBase > 0.0)
-                   ? (int)ceil($capPlanillaBase / $baseCapPeriodo)
-                   : 0;
-            if ($maxCuotasPlanilla > 0) {
-                $nPlan = min($nPlan, $maxCuotasPlanilla);
-            }
-        }
-
-        $totalInteresesPlan = $soloInteresConfig
-            ? $planInteresObjetivo
-            : (($nPlan > 0) ? $totalIntereses : 0.0);
-
-        // === 6) Fechas de planilla ===
-        $fechasPlanilla = [];
-        if ($nPlan > 0) {
-            if ($frecuencia === 'quincenal') {
-                $f = $fIni->copy();
-                for ($i=1; $i <= $nPlan; $i++) {
-                    if ($f->day <= 15) { $f = $f->copy()->startOfMonth()->addDays(14); }
-                    else { $f = $f->copy()->endOfMonth(); }
-                    $fechasPlanilla[] = $f->toDateString();
-                    if ($f->day === 15) { $f = $f->copy()->endOfMonth(); }
-                    else { $f = $f->copy()->addMonthNoOverflow()->startOfMonth()->addDays(14); }
-                }
-            } elseif ($frecuencia === 'mensual') {
-                $f = $fIni->copy();
-                for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addMonthNoOverflow(); }
-            } elseif ($frecuencia === 'semanal') {
-                $f = $fIni->copy();
-                for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addDays(7); }
-            } else { // bisemanal 14 días
-                $f = $fIni->copy();
-                for ($i=1; $i <= $nPlan; $i++) { $fechasPlanilla[] = $f->toDateString(); $f = $f->copy()->addDays(14); }
-            }
-        }
-
-        // === 7) Construir y ordenar eventos ===
-        $eventos = [];
-        foreach ($depEventos as $d)      $eventos[] = $d;                               // depósitos
-        foreach ($fechasPlanilla as $d)  $eventos[] = ['tipo'=>'planilla','fecha'=>$d];
-        foreach ($extrasEventos as $e)   $eventos[] = $e;
-
-        usort($eventos, function ($a, $b) {
-            if ($a['fecha'] === $b['fecha']) {
-                $rank = ['deposito'=>0,'planilla'=>1,'extra'=>2];
-                return ($rank[$a['tipo']] ?? 9) <=> ($rank[$b['tipo']] ?? 9);
-            }
-            return strcmp($a['fecha'], $b['fecha']);
-        });
-
-        // === 8) Insertar ===
-        $epsilon = 1e-9;
-
-        $saldoCapRestTotal = $monto;
-        $saldoIntRestTotal = $totalInteresesPlan;
-        $capPlanRest       = $capPlanillaBase;
-
-        $intUnit  = ($nPlan > 0) ? ($totalInteresesPlan / $nPlan) : 0.0;
-        $intResid = ($nPlan > 0) ? ($totalInteresesPlan - ($intUnit * ($nPlan - 1))) : 0.0;
-
-        $saldoCapPag = 0.0;
-        $saldoIntPag = 0.0;
-        $num = 1; $planProcesadas = 0;
-
-        foreach ($eventos as $ev) {
-            if ($saldoCapRestTotal <= $epsilon && $saldoIntRestTotal <= $epsilon) break;
-
-            $fecha = $ev['fecha'];
-            $abCap = 0.0; $abInt = 0.0; $cuotaPeriodo = 0.0; $obs = null; $motivo = null;
-
-            if ($ev['tipo'] === 'planilla') {
-                if ($planProcesadas < $nPlan - 1) {
-                    $abCap = min($baseCapPeriodo, $capPlanRest);
-                    $abInt = min($intUnit,       $saldoIntRestTotal);
-                } else {
-                    $abCap = $capPlanRest;
-                    $abInt = $saldoIntRestTotal;
-                }
-                $abCap = max(0.0, min($abCap, $saldoCapRestTotal));
-                $abInt = max(0.0, min($abInt, $saldoIntRestTotal));
-
-                $capPlanRest       = max(0.0, $capPlanRest - $abCap);
-                $saldoIntRestTotal = max(0.0, $saldoIntRestTotal - $abInt);
-                $motivo = 'PLANILLA';
-                $planProcesadas++;
-
-            } elseif ($ev['tipo'] === 'deposito') {
-                $montoDep = (float)($ev['monto'] ?? 0.0);
-                $abCap    = min($montoDep, $saldoCapRestTotal); // todo a capital
-                $abInt    = 0.0;
-                $obs      = 'Depósito directo a cuenta';
-                $motivo   = 'DEPOSITO';
-
-            } else { // extra
-                $m = (float)($ev['monto'] ?? 0.0);
-                $abCap  = min($m, $saldoCapRestTotal);
-                $abInt  = 0.0;
-                $obs    = 'Cobro extraordinario'.(!empty($ev['label']) ? (': '.$ev['label']) : '');
-                $motivo = 'EXTRA';
-            }
-
-            $cuotaPeriodo = $abCap + $abInt;
-
-            $saldoCapPag      += $abCap;
-            $saldoIntPag      += $abInt;
-            $saldoCapRestTotal = max(0.0, $saldoCapRestTotal - $abCap);
-
-            DB::table('historial_cuotas')->insert([
-                'id_prestamo'      => $idPrestamo,
-                'num_cuota'        => $num,
-                'fecha_programada' => $fecha,
-                'abono_capital'    => $abCap,
-                'abono_intereses'  => $abInt,
-                'cuota_mensual'    => $cuotaMensualReferencia, // referencial
-                'cuota_quincenal'  => $cuotaPeriodo,
-                'saldo_pagado'     => $saldoCapPag,
-                'saldo_restante'   => $saldoCapRestTotal,
-                'interes_pagado'   => $saldoIntPag,
-                'interes_restante' => $saldoIntRestTotal,
-                'ajuste'           => 0,
-                'motivo'           => $motivo,
-                'fecha_pago_real'  => null,
-                'pagado'           => 0,
-                'observaciones'    => $obs,
-            ]);
-
-            $num++;
+            // único
+            $depEventos[] = [
+                'tipo'  => 'deposito',
+                'fecha' => $fechaCursor->toDateString(),
+                'monto' => $depSlices[0],
+            ];
+            $fechaCursor = $fechaCursor->copy()->addDay();
         }
     }
+
+    // 7.c) Extras (uno por día a partir de fechaCursor)
+    $extrasEventos = [];
+    foreach ($extrasData as $ex) {
+        $extrasEventos[] = [
+            'tipo'  => 'extra',
+            'fecha' => $fechaCursor->toDateString(),
+            'label' => $ex['label'],
+            'monto' => $ex['monto'],
+        ];
+        $fechaCursor = $fechaCursor->copy()->addDay();
+    }
+
+    // Orden final: planilla -> depósitos -> extras (ya SIN sort)
+    foreach ($depEventos as $d)  { $eventos[] = $d; }
+    foreach ($extrasEventos as $e){ $eventos[] = $e; }
+
+    // === 8) Inserción con saldos coherentes ===
+    $epsilon = 1e-9;
+
+    $saldoCapRestTotal = $monto;                 // capital total del préstamo
+    $saldoIntRestTotal = $totalInteresesPlan;    // intereses planificados a pagar en planilla
+    $capPlanRest       = $capPlanillaBase;       // capital que realmente irá por planilla
+
+    $intUnit  = ($nPlan > 0) ? ($totalInteresesPlan / $nPlan) : 0.0;
+
+    $saldoCapPag = 0.0;
+    $saldoIntPag = 0.0;
+    $num = 1; $planProcesadas = 0;
+
+    foreach ($eventos as $ev) {
+        // OJO: NO rompemos antes de procesar depósitos/extras; deben quedar al FINAL
+        $fecha = $ev['fecha'];
+        $abCap = 0.0; $abInt = 0.0; $cuotaPeriodo = 0.0; $obs = null; $motivo = null;
+
+        if ($ev['tipo'] === 'planilla') {
+            if ($planProcesadas < $nPlan - 1) {
+                $abCap = min($baseCapPeriodo, $capPlanRest);
+                $abInt = min($intUnit,       $saldoIntRestTotal);
+            } else {
+                $abCap = $capPlanRest;
+                $abInt = $saldoIntRestTotal;
+            }
+            $abCap = max(0.0, min($abCap, $saldoCapRestTotal));
+            $abInt = max(0.0, min($abInt, $saldoIntRestTotal));
+
+            $capPlanRest       = max(0.0, $capPlanRest - $abCap);
+            $saldoIntRestTotal = max(0.0, $saldoIntRestTotal - $abInt);
+            $motivo = 'PLANILLA';
+            $planProcesadas++;
+
+        } elseif ($ev['tipo'] === 'deposito') {
+            $montoDep = (float)($ev['monto'] ?? 0.0);
+            $abCap    = min($montoDep, $saldoCapRestTotal); // todo a capital
+            $abInt    = 0.0;
+            $obs      = 'Depósito directo a cuenta';
+            $motivo   = 'DEPOSITO';
+
+        } else { // extra
+            $m = (float)($ev['monto'] ?? 0.0);
+            $abCap  = min($m, $saldoCapRestTotal);
+            $abInt  = 0.0;
+            $obs    = 'Cobro extraordinario'.(!empty($ev['label']) ? (': '.$ev['label']) : '');
+            $motivo = 'EXTRA';
+        }
+
+        $cuotaPeriodo = $abCap + $abInt;
+
+        $saldoCapPag      += $abCap;
+        $saldoIntPag      += $abInt;
+        $saldoCapRestTotal = max(0.0, $saldoCapRestTotal - $abCap);
+
+        DB::table('historial_cuotas')->insert([
+            'id_prestamo'      => $idPrestamo,
+            'num_cuota'        => $num,
+            'fecha_programada' => $fecha,
+            'abono_capital'    => $abCap,
+            'abono_intereses'  => $abInt,
+            'cuota_mensual'    => $cuotaMensualReferencia, // referencial
+            'cuota_quincenal'  => $cuotaPeriodo,
+            'saldo_pagado'     => $saldoCapPag,
+            'saldo_restante'   => $saldoCapRestTotal,
+            'interes_pagado'   => $saldoIntPag,
+            'interes_restante' => $saldoIntRestTotal,
+            'ajuste'           => 0,
+            'motivo'           => $motivo,
+            'fecha_pago_real'  => null,
+            'pagado'           => 0,
+            'observaciones'    => $obs,
+        ]);
+
+        $num++;
+    }
+}
 
     private function obtenerSaldoCapitalPendienteEmpleado(int $idEmpleado): float
     {
@@ -530,54 +564,57 @@ class PrestamosNuevo extends Controller
             $sumCapPagPrev = (float)($paid->cap ?? 0);
             $sumIntPagPrev = (float)($paid->inte ?? 0);
 
-            // 4) Cuánto interés se paga en esta "cuota final"
-            $intToPay = match ($intTipo) {
-                'ninguno' => 0.0,
-                'parcial' => max(0.0, min($sumIntPend, (float)$intMonto)),
-                default   => $sumIntPend, // 'todos'
-            };
-            $intTrasladado = $sumIntPend - $intToPay; // SOLO informativo
+            // 4) Cuánto interés se paga en esta "cuota final"  (AJUSTADO)
+            $ultimaFila = DB::table('historial_cuotas')
+                ->where('id_prestamo', $old->id_prestamo)
+                ->orderByDesc('id_historial_cuotas')
+                ->first();
+            $intPendienteUlt = isset($ultimaFila->interes_restante) ? (float)$ultimaFila->interes_restante : $sumIntPend;
 
-            // 5) Borrar cuotas pendientes
+            // Qué parte de interés se paga AHORA (impacta en interes_pagado y en cuota del día)
+            // Y qué valor va en la columna abono_intereses (lo que me pediste):
+            if ($intTipo === 'todos') {
+                $intPagadoAhora = $sumIntPend;                 // se paga todo
+                $abIntCol       = $sumIntPend;                 // como antes (OK)
+                $obsFila        = 'Cancelado con refinanciamiento | Intereses pagados: L '.$intPagadoAhora;
+            } elseif ($intTipo === 'parcial') {
+                $intPagadoAhora = max(0.0, min($sumIntPend, (float)$intMonto)); // lo que sí paga hoy
+                $restante       = max(0.0, $sumIntPend - $intPagadoAhora);      // lo que queda
+                $abIntCol       = $restante;                  // <-- va el RESTANTE en abono_intereses
+                $obsFila        = 'Cancelado con refinanciamiento | Intereses pagados parcialmente: L '
+                                . $intPagadoAhora . ' | Resto trasladado: L ' . $restante;
+            } else { // 'ninguno'
+                $intPagadoAhora = 0.0;                        // no paga interés hoy
+                $abIntCol       = $intPendienteUlt;           // <-- lo pendiente según última cuota
+                $obsFila        = 'Cancelado con refinanciamiento | Intereses no pagados: L '
+                                . $abIntCol . ' (trasladados al próximo préstamo)';
+            }
+
+            // 5) Borrar cuotas pendientes (igual que tenías)
             DB::table('historial_cuotas')
                 ->where('id_prestamo', $old->id_prestamo)
                 ->where('pagado', 0)
                 ->delete();
 
-            // 6) Insertar la cuota única pagada
+            // 6) Insertar la cuota única pagada (AJUSTADO)
             $nextNum = (int)(DB::table('historial_cuotas')
                 ->where('id_prestamo', $old->id_prestamo)
                 ->max('num_cuota') ?? 0) + 1;
 
             $abCapFinal = $sumCapPend;
-            $abIntFinal = $intToPay;
-            $cuotaFinal = $abCapFinal + $abIntFinal;
-
-            // Texto para observaciones (según selección)
-            if ($intTipo === 'todos') {
-                $obsFila = 'Cancelado con refinanciamiento | Intereses pagados: L '.$abIntFinal;
-            } elseif ($intTipo === 'parcial') {
-                $obsFila = 'Cancelado con refinanciamiento | Intereses pagados parcialmente: L '
-                         . $abIntFinal
-                         . ' | Resto L '.$intTrasladado
-                         . ' pagado en próximo préstamo';
-            } else { // ninguno
-                $obsFila = 'Cancelado con refinanciamiento | Intereses no pagados: L '
-                         . $sumIntPend
-                         . ' (pagados en próximo préstamo)';
-            }
+            $cuotaFinal = $abCapFinal + $intPagadoAhora; // lo que realmente se cobra hoy
 
             DB::table('historial_cuotas')->insert([
                 'id_prestamo'      => $old->id_prestamo,
                 'num_cuota'        => $nextNum,
                 'fecha_programada' => $fechaPago,
                 'abono_capital'    => $abCapFinal,
-                'abono_intereses'  => $abIntFinal,
+                'abono_intereses'  => $abIntCol,                    // <--- aquí va lo pedido
                 'cuota_mensual'    => $cuotaFinal,
                 'cuota_quincenal'  => $cuotaFinal,
                 'saldo_pagado'     => $sumCapPagPrev + $abCapFinal,
                 'saldo_restante'   => 0.00,
-                'interes_pagado'   => $sumIntPagPrev + $abIntFinal,
+                'interes_pagado'   => $sumIntPagPrev + $intPagadoAhora, // solo lo pagado hoy
                 'interes_restante' => 0.00,
                 'ajuste'           => 0,
                 'fecha_pago_real'  => $fechaPago,
@@ -586,18 +623,17 @@ class PrestamosNuevo extends Controller
                 'observaciones'    => $obsFila,
             ]);
 
-            // 7) Cerrar préstamo anterior (concatenando observación clara)
+            // 7) Cerrar préstamo anterior (texto ajustado si quieres mantener detalle)
             $obsPrestamo = 'Cancelado con refinanciamiento (nuevo #'.$idPrestamoNuevo.')'
-                         . ' | Cap: L '.$abCapFinal;
+                        . ' | Cap: L '.$abCapFinal;
             if ($intTipo === 'todos') {
-                $obsPrestamo .= ' | Int pagados: L '.$abIntFinal;
+                $obsPrestamo .= ' | Int pagados: L '.$intPagadoAhora;
             } elseif ($intTipo === 'parcial') {
-                $obsPrestamo .= ' | Int pagados parcial: L '.$abIntFinal
-                              . ' | Resto L '.$intTrasladado
-                              . ' pagado en próximo préstamo';
+                $restante = max(0.0, $sumIntPend - $intPagadoAhora);
+                $obsPrestamo .= ' | Int pagados parcial: L '.$intPagadoAhora
+                            . ' | Resto L '.$restante.'.';
             } else {
-                $obsPrestamo .= ' | Int no pagados: L '.$sumIntPend
-                              . ' (pagados en próximo préstamo)';
+                $obsPrestamo .= ' | Int no pagados: L '.$abIntCol.'.';
             }
 
             DB::table('prestamo')
@@ -611,8 +647,6 @@ class PrestamosNuevo extends Controller
         });
     }
 
-
-    // ====== Helper: normaliza strings tipo "1.234,56", "L. 2,075.83", "$1,200" ======
     private function parseMoney($v): float
     {
         if ($v === null || $v === '') return 0.0;
@@ -620,9 +654,9 @@ class PrestamosNuevo extends Controller
         if (!is_string($v)) return 0.0;
 
         $s = trim($v);
-        $s = preg_replace('/\x{00A0}|\s/u', '', $s);      // quita espacios y NBSP
-        $neg = str_contains($s, '-');                    // bandera negativo
-        $s = preg_replace('/[^0-9\.,]/u', '', $s);       // deja solo dígitos, . y ,
+        $s = preg_replace('/\x{00A0}|\s/u', '', $s);
+        $neg = str_contains($s, '-');
+        $s = preg_replace('/[^0-9\.,]/u', '', $s);
 
         if ($s === '') return 0.0;
 

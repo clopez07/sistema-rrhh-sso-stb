@@ -25,13 +25,13 @@
 <div class="sheet">
 
 <a class="btn" href="{{ route('mediciones.export.iluminacion', request()->only('id_localizacion','year')) }}">
-  Descargar Excel (ILUMINACION AZUL)
+  RESUMEN DE RESULTADOS DE MEDICIÓN DE ILUMINACIÓN
 </a>
 
 {{-- En tu vista de Iluminación, donde pones los demás botones --}}
 <a class="btn"
    href="{{ route('mediciones.export.iluminacion.plantilla') }}">
-  Descargar Excel (Plantilla VERDE)
+  HOJA DE CAMPO DE MEDICIÓN DE ILUMINACIÓN
 </a>
 
 <form method="GET" action="{{ route('mediciones.iluminacion.reporte') }}"

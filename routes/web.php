@@ -40,6 +40,7 @@ use App\Http\Controllers\NotificacionRiesgoExcelTemplateController;
 use App\Http\Controllers\AjustesPrestamosController;
 use App\Http\Controllers\MedicionesController;
 use App\Http\Controllers\EppRequeridosController;
+use App\Http\Controllers\PrestamoRenunciaController;
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/evaluacion-riesgos/puestos', [EvaluacionRiesgosExportController::class, 'puestos'])->name('evaluacion.riesgos.puestos');
@@ -559,6 +560,19 @@ Route::post('/mediciones/ruido/update', [MedicionesController::class, 'updateRui
 
     Route::get('nataly/mediciones/export/ruido-plantilla', [MedicionesController::class, 'exportRuidoDesdePlantilla'])
      ->name('mediciones.export.ruido.plantilla');
+
+Route::get('/mediciones/captura/prefill', [MedicionesController::class, 'prefill'])
+    ->name('mediciones.captura.prefill');
+
+    Route::get('/prestamos/renuncia', [PrestamoRenunciaController::class, 'form'])
+    ->name('prestamos.renuncia.form');
+
+Route::post('/prestamos/renuncia/confirmar', [PrestamoRenunciaController::class, 'confirmar'])
+    ->name('prestamos.renuncia.confirmar');
+
+    Route::get('/prestamos/detalle/{id}', [Prestamos::class, 'detallePrestamo'])
+    ->whereNumber('id')
+    ->name('prestamos.detalle');
 });
 
 

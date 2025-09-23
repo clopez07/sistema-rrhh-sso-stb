@@ -305,115 +305,117 @@ public function updateAccionIluminacion(\Illuminate\Http\Request $request)
 
 public function reporteRuido(\Illuminate\Http\Request $request)
 {
-    $yearInput = $request->input('year');
+    $yearInput   = $request->input('year');
     $currentYear = (int) now()->year;
-    $year = ($yearInput === null || $yearInput === '') ? $currentYear : (int) $yearInput;
+    $year        = ($yearInput === null || $yearInput === '') ? $currentYear : (int) $yearInput;
 
     $availableYears = collect(
         \DB::table('mediciones_ruido as m')
             ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')
             ->pluck('y')
-    )
-        ->filter(fn($v) => !is_null($v))
-        ->map(fn($v) => (int) $v)
-        ->filter(fn($v) => $v > 0)
-        ->unique()
-        ->sortDesc()
-        ->values();
+    )->filter(fn($v) => !is_null($v))
+     ->map(fn($v) => (int) $v)
+     ->filter(fn($v) => $v > 0)
+     ->unique()
+     ->sortDesc()
+     ->values();
 
     if (!$availableYears->contains($year)) {
         $availableYears = $availableYears->concat([$year])->unique()->sortDesc()->values();
     }
 
-    // Todas las localizaciones (secciones aunque estén vacías)
-$localizaciones = \DB::table('localizacion')
-    ->select('id_localizacion','localizacion')
-    ->orderBy('localizacion')
-    ->get();
+    // Localizaciones para agrupar
+    $localizaciones = \DB::table('localizacion')
+        ->select('id_localizacion','localizacion')
+        ->orderBy('localizacion')
+        ->get();
 
-/*
- * Filas (puntos) con puesto + área del puesto.
- * Luego calculamos PROM, NRR y NRE en PHP según tus reglas.
- */
-$rawRows = \DB::table('mediciones_ruido as m')
-    ->leftJoin('puesto_trabajo_matriz as p','p.id_puesto_trabajo_matriz','=','m.id_puesto_trabajo_matriz')
-    ->leftJoin('area as a','a.id_area','=','p.id_area')
-    ->select(
-        'm.id_mediciones_ruido as id',
-        'm.id_localizacion',
-        'm.punto_medicion',
-        'm.id_puesto_trabajo_matriz',
-        'p.puesto_trabajo_matriz as puesto',
-        'a.area as area_nombre',
-        'm.nivel_maximo',
-        'm.nivel_minimo',
-        'm.nivel_promedio',     // por compatibilidad; lo recalculamos igual
-        'm.limites_aceptables',
-        'm.acciones_correctivas'
-    )
-    ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
-    ->orderBy('m.id_localizacion')
-    ->orderBy('m.punto_medicion')
-    ->get();
+    // Filas base + área del puesto
+    $rawRows = \DB::table('mediciones_ruido as m')
+        ->leftJoin('puesto_trabajo_matriz as p','p.id_puesto_trabajo_matriz','=','m.id_puesto_trabajo_matriz')
+        ->leftJoin('area as a','a.id_area','=','p.id_area')
+        ->select(
+            'm.id_mediciones_ruido as id',
+            'm.id_localizacion',
+            'm.punto_medicion',
+            'm.id_puesto_trabajo_matriz',
+            'p.puesto_trabajo_matriz as puesto',
+            'a.area as area_nombre',
+            'm.nivel_maximo',
+            'm.nivel_minimo',
+            'm.nivel_promedio',
+            'm.limites_aceptables',
+            'm.acciones_correctivas',
+            'm.observaciones'
+        )
+        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
+        ->orderBy('m.id_localizacion')
+        ->orderBy('m.punto_medicion')
+        ->get();
 
-/* Cálculo de columnas derivadas */
-$calcRows = $rawRows->map(function ($r) {
-    $max = is_numeric($r->nivel_maximo) ? (float)$r->nivel_maximo : null;
-    $min = is_numeric($r->nivel_minimo) ? (float)$r->nivel_minimo : null;
+    // Regla: reducción EPP si PROMEDIO > 80 dB
+    $REDUCCION_UMBRAL = 80.0;
 
-    // PROMEDIO = (max + min) / 2 (si alguno falta, intenta usar el promedio guardado)
-    if (!is_null($max) && !is_null($min)) {
-        $prom = ($max + $min) / 2.0;
-    } else {
-        $prom = is_numeric($r->nivel_promedio) ? (float)$r->nivel_promedio : null;
-    }
+    $calcRows = $rawRows->map(function ($r) use ($REDUCCION_UMBRAL) {
+        $max = is_numeric($r->nivel_maximo) ? (float)$r->nivel_maximo : null;
+        $min = is_numeric($r->nivel_minimo) ? (float)$r->nivel_minimo : null;
 
-    // Límite (default 85)
-    $lim = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 85.0;
+        $prom = (!is_null($max) && !is_null($min))
+            ? ($max + $min) / 2.0
+            : (is_numeric($r->nivel_promedio) ? (float)$r->nivel_promedio : null);
 
-    // NRR y NRE
-    $nrr = null;   // sólo si excede el límite
-    $nre = $prom;  // por defecto, el mismo promedio
+        // Límite mostrado (si no viene, 80)
+        $lim = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 80.0;
 
-    if (!is_null($prom) && $prom > $lim) {
-        $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
-        $nre = $prom - $nrr;
-    }
+        // Cálculo de NRR/NRE según umbral 80 dB
+        $nrr = null;
+        $nre = $prom;
+        $obs = $r->acciones_correctivas;
 
-    // Guardar calculados para la vista
-    $r->calc_promedio = is_null($prom) ? null : round($prom, 2);
-    $r->calc_nrr      = is_null($nrr)  ? null : round($nrr, 2);
-    $r->calc_nre      = is_null($nre)  ? null : round($nre, 2);
-    $r->lim_final     = $lim; // para mostrar (y formatear) el límite final usado
+        if (!is_null($prom) && $prom > $REDUCCION_UMBRAL) {
+            $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+            $nre = $prom - $nrr;
 
-    return $r;
-});
-
-/* Agrupar por localización y ordenar dentro del grupo */
-$filas = $calcRows
-    ->groupBy('id_localizacion')
-    ->map(function ($rows) {
-        return $rows->sort(function ($a, $b) {
-            $cmp = strnatcasecmp((string)($a->punto_medicion ?? ''),(string)($b->punto_medicion ?? ''));
-            if ($cmp === 0) {
-                $cmp = strcasecmp((string)($a->puesto ?? ''),(string)($b->puesto ?? ''));
+            // Observación automática si viene vacía
+            if ($obs === null || trim($obs) === '') {
+                $obs = 'Uso obligatorio de protección auditiva';
             }
-            return $cmp;
-        })->values();
+        }
+
+        // Valores calculados para la vista
+        $r->calc_promedio = is_null($prom) ? null : round($prom, 2);
+        $r->calc_nrr      = is_null($nrr)  ? null : round($nrr, 2);
+        $r->calc_nre      = is_null($nre)  ? null : round($nre, 2);
+        $r->lim_final     = $lim;
+        $r->acciones_correctivas = $obs; // deja la observación lista por si la muestras o exportas
+
+        return $r;
     });
 
-$puestos = \DB::table('puesto_trabajo_matriz')
-    ->select('id_puesto_trabajo_matriz','puesto_trabajo_matriz')
-    ->orderBy('puesto_trabajo_matriz')
-    ->get();
+    $filas = $calcRows
+        ->groupBy('id_localizacion')
+        ->map(function ($rows) {
+            return $rows->sort(function ($a, $b) {
+                $cmp = strnatcasecmp((string)($a->punto_medicion ?? ''),(string)($b->punto_medicion ?? ''));
+                if ($cmp === 0) {
+                    $cmp = strcasecmp((string)($a->puesto ?? ''),(string)($b->puesto ?? ''));
+                }
+                return $cmp;
+            })->values();
+        });
 
-return view('mediciones.reporte_ruido', [
-    'year'           => $year,
-    'localizaciones' => $localizaciones,
-    'grupos'         => $filas,
-    'puestos'        => $puestos,
-    'years'          => $availableYears,
-]);
+    $puestos = \DB::table('puesto_trabajo_matriz')
+        ->select('id_puesto_trabajo_matriz','puesto_trabajo_matriz')
+        ->orderBy('puesto_trabajo_matriz')
+        ->get();
+
+    return view('mediciones.reporte_ruido', [
+        'year'           => $year,
+        'localizaciones' => $localizaciones,
+        'grupos'         => $filas,
+        'puestos'        => $puestos,
+        'years'          => $availableYears,
+    ]);
 }
 
 public function updateAccionRuido(\Illuminate\Http\Request $request)
@@ -1384,7 +1386,6 @@ public function exportIluminacionDesdePlantilla(Request $request)
         }
     }
 
-    // ❌ Quita la hoja "Plantilla" si quedó en el libro
     if ($tpl = $spreadsheet->getSheetByName('Plantilla')) {
         $idx = $spreadsheet->getIndex($tpl);
         $spreadsheet->removeSheetByIndex($idx);
@@ -1546,7 +1547,7 @@ public function exportRuidoDesdePlantilla(Request $request)
                     ? ($max + $min) / 2.0
                     : (is_numeric($rec->nivel_promedio) ? (float)$rec->nivel_promedio : null);
 
-            $lim = is_numeric($rec->limites_aceptables) ? (float)$rec->limites_aceptables : 85.0;
+            $lim = is_numeric($rec->limites_aceptables) ? (float)$rec->limites_aceptables : 80.0;
 
             // NRR solo para el cálculo de NRE (no se imprime)
             $nrr = null;
@@ -1598,6 +1599,112 @@ public function exportRuidoDesdePlantilla(Request $request)
         'Pragma'                    => 'no-cache',
         'Expires'                   => '0',
         'Content-Transfer-Encoding' => 'binary',
+    ]);
+}
+
+public function prefill(Request $request)
+{
+    $id = (int) $request->query('id_localizacion');
+    if ($id <= 0) {
+        return response()->json(['ok' => false, 'error' => 'id_localizacion requerido'], 422);
+    }
+
+    // Año más reciente con datos por tipo
+    $lastYrR = DB::table('mediciones_ruido')
+        ->where('id_localizacion', $id)
+        ->selectRaw('MAX(YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final))) as y')
+        ->value('y');
+
+    $lastYrL = DB::table('mediciones_iluminacion')
+        ->where('id_localizacion', $id)
+        ->selectRaw('MAX(YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final))) as y')
+        ->value('y');
+
+    // Meta para RUIdo (instrumento/serie/marca/NRR/departamento) del año más reciente
+    $ruidoMeta = null;
+    if ($lastYrR) {
+        $ruidoMeta = DB::table('mediciones_ruido')
+            ->where('id_localizacion', $id)
+            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrR])
+            ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
+            ->orderByDesc('id')
+            ->first(['instrumento','serie','marca','nrr','departamento']);
+    }
+
+    // Meta para ILUMINACIÓN (instrumento/serie/marca/departamento)
+    $luxMeta = null;
+    if ($lastYrL) {
+        $luxMeta = DB::table('mediciones_iluminacion')
+            ->where('id_localizacion', $id)
+            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrL])
+            ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
+            ->orderByDesc('id')
+            ->first(['instrumento','serie','marca','departamento']);
+    }
+
+    // Plantilla de filas: agrupamos por (puesto, punto) y tomamos (si existe) un límite típico
+    $ruidoRows = collect();
+    if ($lastYrR) {
+        $ruidoRows = DB::table('mediciones_ruido')
+            ->select(
+                'id_puesto_trabajo_matriz',
+                'punto_medicion',
+                DB::raw('MAX(limites_aceptables) AS limites_aceptables')
+            )
+            ->where('id_localizacion', $id)
+            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrR])
+            ->groupBy('id_puesto_trabajo_matriz','punto_medicion')
+            ->orderBy('punto_medicion')
+            ->get()
+            ->map(function($r){
+                return [
+                    'id_puesto_trabajo_matriz' => (int) $r->id_puesto_trabajo_matriz,
+                    'punto_medicion'           => (string) ($r->punto_medicion ?? ''),
+                    'limites_aceptables'       => $r->limites_aceptables !== null ? (float) $r->limites_aceptables : null,
+                ];
+            });
+    }
+
+    $luxRows = collect();
+    if ($lastYrL) {
+        $luxRows = DB::table('mediciones_iluminacion')
+            ->select(
+                'id_puesto_trabajo_matriz',
+                'punto_medicion',
+                DB::raw('MAX(limites_aceptables) AS limites_aceptables')
+            )
+            ->where('id_localizacion', $id)
+            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrL])
+            ->groupBy('id_puesto_trabajo_matriz','punto_medicion')
+            ->orderBy('punto_medicion')
+            ->get()
+            ->map(function($r){
+                return [
+                    'id_puesto_trabajo_matriz' => (int) $r->id_puesto_trabajo_matriz,
+                    'punto_medicion'           => (string) ($r->punto_medicion ?? ''),
+                    'limites_aceptables'       => $r->limites_aceptables !== null ? (float) $r->limites_aceptables : null,
+                ];
+            });
+    }
+
+    $base = [
+        'departamento'     => $ruidoMeta->departamento ?? $luxMeta->departamento ?? null,
+        'instrumento_ruido'=> $ruidoMeta->instrumento ?? null,
+        'serie_ruido'      => $ruidoMeta->serie ?? null,
+        'marca_ruido'      => $ruidoMeta->marca ?? null,
+        'nrr'              => $ruidoMeta->nrr ?? null,
+        'instrumento_lux'  => $luxMeta->instrumento ?? null,
+        'serie_lux'        => $luxMeta->serie ?? null,
+        'marca_lux'        => $luxMeta->marca ?? null,
+    ];
+
+    return response()->json([
+        'ok'          => true,
+        'base'        => $base,
+        'ruido_rows'  => $ruidoRows,
+        'lux_rows'    => $luxRows,
+        'year_ruido'  => $lastYrR ? (int) $lastYrR : null,
+        'year_lux'    => $lastYrL ? (int) $lastYrL : null,
     ]);
 }
 
