@@ -2269,7 +2269,7 @@
     <!-- ========== LOCATIVO (3 filas) ========== -->
     <tr>
       <td class="tipo" rowspan="8">LOCATIVO</td>
-      <td class="label-cell">ESCALERAS Y RAMPAS MAL DISEÑADAS</td>
+      <td class="label-cell">ESCALERAS Y RAMPLAS EN MAL ESTADO/MAL DISEÑADAS</td>
       <td class="label-cell">Caída y golpes</td>
       <td class="label-cell">Fractura / contusiones</td>
       <td class="center"><input type="radio" name="r26_aplica" value="si"></td>

@@ -376,107 +376,59 @@ class VerificacionRiesgosController extends Controller
         if (($v=$val($r->otras)) !== null) { $medidasPorRiesgo[$rid]['otras'][$v] = true; }
     }
 
-    // ========= 4) Helpers para fechas (robusto) =========
+// ========= 4) Helpers para fechas =========
 
-// Tablas candidatas (añadí varios alias comunes)
+// Para EPP sigo usando múltiples tablas candidatas (ajústalas si usas otras)
 $eppDateTables = [
-    ['table' => 'asignacion_epp',        'id' => 'id_epp'],
-    ['table' => 'epp_entrega',           'id' => 'id_epp'],
-    ['table' => 'empleado_epp',          'id' => 'id_epp'],
-    ['table' => 'asignaciones_epp',      'id' => 'id_epp'],
-    ['table' => 'epp_empleado',          'id' => 'id_epp'],
+    ['table' => 'asignacion_epp',   'id' => 'id_epp'],
+    ['table' => 'epp_entrega',      'id' => 'id_epp'],
+    ['table' => 'empleado_epp',     'id' => 'id_epp'],
+    ['table' => 'asignaciones_epp', 'id' => 'id_epp'],
+    ['table' => 'epp_empleado',     'id' => 'id_epp'],
 ];
 
-$capDateTables = [
-    ['table' => 'asistencia_capacitacion','id' => 'id_capacitacion'],
-    ['table' => 'capacitacion_empleado',  'id' => 'id_capacitacion'],
-    ['table' => 'empleado_capacitacion',  'id' => 'id_capacitacion'],
-    ['table' => 'capacitacion',           'id' => 'id_capacitacion'],
-    ['table' => 'capacitacion_asistencia','id' => 'id_capacitacion'],
-    ['table' => 'capacitacion_detalle',   'id' => 'id_capacitacion'],
-];
-
-// nombres típicos (preferencias) y patrones
-$priorityNames = [
-    'fecha_entrega','fecha_asistencia','fecha_capacitacion','fecha_realizacion',
-    'fecha_programada','fecha_evento','fecha','fecha_registro','fecha_emision',
-    'fecha_entregado','f_entrega'
-];
-
+// Detecta TODAS las columnas fecha (date/datetime/timestamp) de una tabla
 $dbName = DB::getDatabaseName();
-
-/**
- * Devuelve TODAS las columnas de tipo fecha de una tabla, priorizadas.
- */
-$detectDateCols = function (string $table) use ($dbName, $priorityNames) {
+$detectDateCols = function (string $table) use ($dbName) {
     if (!Schema::hasTable($table)) return [];
-
-    // Traer columnas y tipos desde information_schema
     $rows = DB::select("
-        SELECT COLUMN_NAME as col, DATA_TYPE as t
+        SELECT COLUMN_NAME as col
         FROM information_schema.columns
         WHERE table_schema = ? AND table_name = ?
           AND DATA_TYPE IN ('date','datetime','timestamp')
     ", [$dbName, $table]);
-
-    if (!$rows) return [];
-
-    $cols = array_map(fn($r) => $r->col, $rows);
-
-    // Priorizar nombres típicos primero
-    $score = [];
-    foreach ($cols as $c) {
-        $cLower = mb_strtolower($c, 'UTF-8');
-        $idx = array_search($cLower, $priorityNames, true);
-        $score[$c] = ($idx === false) ? 999 : $idx; // menor es más prioritario
-        // pequeño bonus si empieza por 'fecha'
-        if (str_starts_with($cLower, 'fecha')) $score[$c] -= 0.5;
-    }
-
-    // Orden por score, luego alfabético
-    usort($cols, function($a,$b) use ($score){
-        if ($score[$a] == $score[$b]) return strcmp($a,$b);
-        return ($score[$a] < $score[$b]) ? -1 : 1;
-    });
-
-    return $cols; // todas las columnas relevantes, ya priorizadas
+    return $rows ? array_map(fn($r) => $r->col, $rows) : [];
 };
 
-/**
- * Busca fechas por ID en TODAS las columnas detectadas de cada tabla candidata.
- * Retorna: id => [ 'Y-m-d', ... ]
- */
+// Trae TODAS las fechas (sin límite) por ID desde todas las columnas fecha detectadas
 $fetchDatesMap = function(array $ids, array $tableSpecs) use ($anio, $detectDateCols) {
     $out = [];
     $ids = array_values(array_filter(array_map('intval', $ids), fn($v)=>$v>0));
     if (empty($ids)) return $out;
 
     foreach ($tableSpecs as $spec) {
-        $table = $spec['table']; 
+        $table = $spec['table'];
         $idField = $spec['id'];
-
         if (!Schema::hasTable($table) || !Schema::hasColumn($table, $idField)) continue;
 
         $dateCols = $detectDateCols($table);
         if (empty($dateCols)) continue;
 
         foreach ($dateCols as $dateCol) {
-            // SELECT seguro (usa bindings) y proyecta DATE()
             $rows = DB::table($table)
                 ->whereIn($idField, $ids)
-                ->whereYear($dateCol, $anio)
+                ->whereYear($dateCol, $anio) // <-- si quieres todas las anualidades, elimina esta línea
                 ->select([$idField.' as id', DB::raw("DATE(`{$dateCol}`) as d")])
                 ->get();
 
             foreach ($rows as $r) {
+                if (!$r->d) continue;
                 $id = (int)$r->id;
-                if (!isset($out[$id])) $out[$id] = [];
-                if ($r->d) $out[$id][] = (string)$r->d;
+                $out[$id][] = (string)$r->d;
             }
         }
     }
 
-    // Unificar, ordenar y unique
     foreach ($out as $id => $arr) {
         $arr = array_unique(array_filter($arr));
         sort($arr);
@@ -485,14 +437,66 @@ $fetchDatesMap = function(array $ids, array $tableSpecs) use ($anio, $detectDate
     return $out;
 };
 
-$fmtDates = function(array $dates) {
-    $dates = array_values($dates);
-    $max = 4;
-    $shown = array_slice($dates, 0, $max);
-    $shown = array_map(fn($d)=>\Carbon\Carbon::parse($d)->format('d/m/Y'), $shown);
-    if (count($dates) > $max) $shown[] = '+'.(count($dates)-$max).' más';
-    return implode(', ', $shown);
+// Parseador SQL para VARCHAR -> DATE en asistencia_capacitacion.fecha_recibida
+$varcharDate = function(string $qualifiedCol) {
+    return "COALESCE(
+        STR_TO_DATE($qualifiedCol, '%Y-%m-%d'),
+        STR_TO_DATE($qualifiedCol, '%d/%m/%Y'),
+        STR_TO_DATE($qualifiedCol, '%d-%m-%Y'),
+        STR_TO_DATE($qualifiedCol, '%m/%d/%Y'),
+        STR_TO_DATE($qualifiedCol, '%m-%d-%Y')
+    )";
 };
+
+// Fechas de CAPACITACIÓN: asistencia_capacitacion (fecha_recibida VARCHAR)
+// Relación: a.id_capacitacion_instructor -> capacitacion_instructor.id_capacitacion_instructor -> id_capacitacion
+$fetchCapAttendanceDates = function(array $capIds) use ($anio, $varcharDate) {
+    $map = [];
+    $capIds = array_values(array_filter(array_map('intval', $capIds), fn($v)=>$v>0));
+    if (empty($capIds) || !Schema::hasTable('asistencia_capacitacion')) return $map;
+
+    $dateExpr = $varcharDate('a.fecha_recibida');
+
+    if (Schema::hasTable('capacitacion_instructor')
+        && Schema::hasColumn('capacitacion_instructor','id_capacitacion')
+        && Schema::hasColumn('asistencia_capacitacion','id_capacitacion_instructor')) {
+
+        $rows = DB::table('asistencia_capacitacion as a')
+            ->join('capacitacion_instructor as ci','ci.id_capacitacion_instructor','=','a.id_capacitacion_instructor')
+            ->whereIn('ci.id_capacitacion', $capIds)
+            ->whereRaw("YEAR($dateExpr) = ?", [$anio]) // <-- quita esta línea si quieres todas las anualidades
+            ->select(DB::raw('ci.id_capacitacion as id'), DB::raw("DATE($dateExpr) as d"))
+            ->get();
+
+    } elseif (Schema::hasColumn('asistencia_capacitacion','id_capacitacion')) {
+        // Fallback: si tu tabla trae id_capacitacion directo
+        $rows = DB::table('asistencia_capacitacion as a')
+            ->whereIn('a.id_capacitacion', $capIds)
+            ->whereRaw("YEAR($dateExpr) = ?", [$anio])
+            ->select(DB::raw('a.id_capacitacion as id'), DB::raw("DATE($dateExpr) as d"))
+            ->get();
+    } else {
+        $rows = collect();
+    }
+
+    foreach ($rows as $r) {
+        if (!$r->d) continue;
+        $map[(int)$r->id][] = (string)$r->d;
+    }
+    foreach ($map as &$arr) {
+        $arr = array_values(array_unique(array_filter($arr)));
+        sort($arr);
+    }
+    return $map;
+};
+
+// Formateo: ahora SIN límite; muestra TODAS las fechas encontradas
+$fmtDates = function(array $dates) {
+    if (empty($dates)) return '';
+    $dates = array_map(fn($d)=>\Carbon\Carbon::parse($d)->format('d/m/Y'), $dates);
+    return implode(', ', $dates);
+};
+
 
     // ========= 5) Estilos de columnas (incluye G) =========
     $rowLimit = 1000;
@@ -578,8 +582,10 @@ $fmtDates = function(array $dates) {
             $sheet->setCellValue('G'.$row, implode("\n", $gLinesEpp));
 
             // CAPACITACIÓN
+            // CAPACITACIÓN (usar asistencias con fecha_recibida VARCHAR)
             $capIds = array_values(array_filter(array_map('intval', array_values($mm['cap_ids'])), fn($v)=>$v>0));
-            $capDatesMap = $fetchDatesMap($capIds, $capDateTables); // id_capacitacion => [Y-m-d...]
+            $capDatesMap = $fetchCapAttendanceDates($capIds); // id_capacitacion => [Y-m-d...]
+
             $gLinesCap = [];
             $capNames = array_keys($mm['cap']); sort($capNames, SORT_NATURAL|SORT_FLAG_CASE);
             foreach ($capNames as $nm) {

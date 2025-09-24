@@ -37,17 +37,24 @@ class NotificacionRiesgoExcelTemplateController extends Controller
             ->first(['id_puesto_trabajo_matriz','puesto_trabajo_matriz']);
         if (!$ptm) abort(404, 'Puesto no encontrado');
 
-        $equivalentes = DB::table('comparacion_puestos')
-            ->where('id_puesto_trabajo_matriz', $ptmId)
-            ->pluck('id_puesto_trabajo');
-        $empleados = collect();
-        if ($equivalentes->isNotEmpty()) {
-            $empleados = DB::table('empleado')
-                ->whereIn('id_puesto_trabajo', $equivalentes)
-                ->where('estado', 1)
-                ->orderBy('nombre_completo')
-                ->get(['nombre_completo','identidad']);
-        }
+$targetName = trim((string) $ptm->puesto_trabajo_matriz);
+
+$empleados = DB::table('empleado as e')
+    ->leftJoin('puesto_trabajo_matriz as pm', 'pm.id_puesto_trabajo_matriz', '=', 'e.id_puesto_trabajo_matriz')
+    ->leftJoin('puesto_trabajo as ps', 'ps.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
+    ->where('e.estado', 1)
+    // Si tiene matriz (no NULL/0) comparamos contra pm.puesto_trabajo_matriz;
+    // si no, comparamos contra el nombre del puesto del sistema (ps.puesto_trabajo).
+    ->whereRaw(
+        'TRIM(UPPER(CASE 
+            WHEN e.id_puesto_trabajo_matriz IS NOT NULL AND e.id_puesto_trabajo_matriz <> 0
+                THEN pm.puesto_trabajo_matriz
+            ELSE ps.puesto_trabajo
+        END)) = TRIM(UPPER(?))',
+        [$targetName]
+    )
+    ->orderBy('e.nombre_completo')
+    ->get(['e.nombre_completo','e.identidad']);
 
         // === Cargar plantilla desde storage/app/public
         // Asegúrate de tener el symlink: php artisan storage:link

@@ -45,7 +45,17 @@
         @endforeach
       </select>
     </div>
-    @php $persistIlum = request()->except('year'); @endphp
+    <div>
+      <label for="localizacion-search" style="font-weight:600;">Buscar localización:</label>
+      <input list="localizaciones-list" id="localizacion-search" name="localizacion_search" value="{{ request('localizacion_search') }}"
+             class="w-full border border-gray-300 rounded-lg p-2 text-sm" placeholder="Escribe para buscar..." style="min-width:220px;">
+      <datalist id="localizaciones-list">
+        @foreach($localizaciones as $loc)
+          <option value="{{ $loc->localizacion }}">{{ $loc->localizacion }}</option>
+        @endforeach
+      </datalist>
+    </div>
+    @php $persistIlum = request()->except(['year','localizacion_search']); @endphp
     @foreach($persistIlum as $key => $val)
       @if(is_array($val))
         @foreach($val as $k => $v)
@@ -66,7 +76,16 @@
     @if($year)<div class="small">Año: {{ $year }}</div>@endif
   </div>
 
-  @foreach($localizaciones as $loc)
+  @php
+    $searchLoc = request('localizacion_search');
+    $filteredLocs = $localizaciones;
+    if ($searchLoc) {
+      $filteredLocs = $localizaciones->filter(function($l) use ($searchLoc) {
+        return stripos($l->localizacion, $searchLoc) !== false;
+      });
+    }
+  @endphp
+  @foreach($filteredLocs as $loc)
 @php
   $rows = $grupos->get($loc->id_localizacion) ?? collect();
 @endphp
