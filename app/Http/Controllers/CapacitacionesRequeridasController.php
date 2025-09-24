@@ -24,17 +24,98 @@ class CapacitacionesRequeridasController extends Controller
 
         $years = range((int)date('Y'), (int)date('Y') - 10);
 
-        /* ================== 1) PUESTOS MATRIZ (con departamento) ================== */
-        $puestosQuery = DB::table('puesto_trabajo_matriz as ptm')
+        /* ============================================================
+         * 0) Traer TODOS los puestos matriz (con departamento) para:
+         *    - obtener nombres/deptos
+         *    - mapear por nombre cuando falte el id matriz en empleado
+         * ============================================================ */
+        $allPtm = DB::table('puesto_trabajo_matriz as ptm')
             ->leftJoin('departamento as d', 'ptm.id_departamento', '=', 'd.id_departamento')
-            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento');
+            ->select('ptm.id_puesto_trabajo_matriz', 'ptm.puesto_trabajo_matriz', 'd.departamento')
+            ->get();
 
-        if ($buscarPuesto !== '') {
-            $needle = $this->normalize($buscarPuesto);
-            $puestosQuery->whereRaw('LOWER(ptm.puesto_trabajo_matriz) LIKE ?', ["%{$needle}%"]);
+        if ($allPtm->isEmpty()) {
+            return view('capacitaciones.matriz_requeridos', [
+                'years' => $years, 'anio' => $anio, 'buscarPuesto' => $buscarPuesto, 'buscarCap' => $buscarCap,
+                'puestos' => collect(), 'caps' => collect(),
+                'pivot' => [], 'totales' => [], 'totEmpleados' => [],
+                'deptOrder' => [], 'deptPuestos' => [], 'deptEmp' => [], 'deptPivot' => [],
+                'deptTotals' => [], 'deptGrand' => ['req'=>0,'ent'=>0,'pend'=>0],
+                'rowById' => [],
+            ]);
         }
 
-        $puestos = $puestosQuery->orderBy('ptm.puesto_trabajo_matriz')->get();
+        // Índices para mapeo por id y por nombre normalizado
+        $allPtmById   = [];
+        $nameToMatrix = [];
+        foreach ($allPtm as $row) {
+            $rowId = (int)$row->id_puesto_trabajo_matriz;
+            $allPtmById[$rowId] = $row;
+            $nameToMatrix[$this->normalize($row->puesto_trabajo_matriz)] = $rowId;
+        }
+
+        /* ============================================================
+         * 1) EMPLEADOS ACTIVOS → definir a qué puesto MATRIZ pertenecen
+         *    prioridad: id_puesto_trabajo_matriz
+         *    fallback : id_puesto_trabajo -> nombre -> id_matriz
+         * ============================================================ */
+        $empleadosRaw = DB::table('empleado as e')
+            ->leftJoin('puesto_trabajo as pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
+            ->select(
+                'e.id_empleado','e.nombre_completo','e.codigo_empleado','e.identidad',
+                'e.id_puesto_trabajo','e.id_puesto_trabajo_matriz',
+                'pt.puesto_trabajo as legacy_nombre'
+            )
+            ->where(function ($q) { $q->where('e.estado', 1)->orWhereNull('e.estado'); })
+            ->get();
+
+        // Mapeo por id_puesto_trabajo -> id_puesto_trabajo_matriz (si logramos deducirlo por nombre)
+        $legacyIdToMatrix = [];
+
+        // Conteo de empleados por puesto matriz (solo puestos con personal aparecerán)
+        $empleadosPorMatrix = [];
+
+        foreach ($empleadosRaw as $emp) {
+            $matrixId = $emp->id_puesto_trabajo_matriz ? (int)$emp->id_puesto_trabajo_matriz : null;
+
+            // fallback: a partir del id de puesto legacy, si ya lo dedujimos antes
+            if (!$matrixId && $emp->id_puesto_trabajo && isset($legacyIdToMatrix[$emp->id_puesto_trabajo])) {
+                $matrixId = $legacyIdToMatrix[$emp->id_puesto_trabajo];
+            }
+            // fallback: por nombre de puesto legacy → nombre de puesto matriz
+            if (!$matrixId && $emp->legacy_nombre) {
+                $norm = $this->normalize($emp->legacy_nombre);
+                if ($norm !== '' && isset($nameToMatrix[$norm])) {
+                    $matrixId = $nameToMatrix[$norm];
+                    if ($emp->id_puesto_trabajo) {
+                        $legacyIdToMatrix[$emp->id_puesto_trabajo] = $matrixId;
+                    }
+                }
+            }
+
+            if ($matrixId && isset($allPtmById[$matrixId])) {
+                $empleadosPorMatrix[$matrixId] = ($empleadosPorMatrix[$matrixId] ?? 0) + 1;
+            }
+            // Si no logramos mapear a un puesto matriz, se ignora para la matriz (no hay obligatorias sin id_matriz).
+        }
+
+        // Filtrar puestos a mostrar: SOLO los que tienen empleados
+        $matrixIdsUsed = array_keys($empleadosPorMatrix);
+        if (!empty($buscarPuesto)) {
+            $needle = $this->normalize($buscarPuesto);
+            $matrixIdsUsed = array_values(array_filter($matrixIdsUsed, function($id) use ($allPtmById, $needle) {
+                return str_contains($this->normalize($allPtmById[$id]->puesto_trabajo_matriz ?? ''), $needle);
+            }));
+        }
+
+        // Construir la colección $puestos final (ordenada por nombre)
+        $puestos = collect($matrixIdsUsed)
+            ->map(fn($id) => $allPtmById[$id])
+            ->sort(function ($a, $b) {
+                return strnatcasecmp($a->puesto_trabajo_matriz, $b->puesto_trabajo_matriz);
+            })
+            ->values();
+
         if ($puestos->isEmpty()) {
             return view('capacitaciones.matriz_requeridos', [
                 'years' => $years, 'anio' => $anio, 'buscarPuesto' => $buscarPuesto, 'buscarCap' => $buscarCap,
@@ -46,68 +127,32 @@ class CapacitacionesRequeridasController extends Controller
             ]);
         }
 
-        // índices auxiliares
-        $rowById = [];
-        $nameToMatrix = [];
-        foreach ($puestos as $row) {
-            $rowId = (int)$row->id_puesto_trabajo_matriz;
-            $rowById[$rowId] = $row;
-            $nameToMatrix[$this->normalize($row->puesto_trabajo_matriz)] = $rowId;
-        }
-
-        /* ================== 2) EMPLEADOS ACTIVOS → mapear a puesto matriz ================== */
-        $empleadosRaw = DB::table('empleado as e')
-            ->leftJoin('puesto_trabajo as pt', 'e.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
-            ->select(
-                'e.id_empleado','e.nombre_completo','e.codigo_empleado','e.identidad',
-                'e.id_puesto_trabajo','e.id_puesto_trabajo_matriz',
-                'pt.puesto_trabajo as legacy_nombre'
-            )
-            ->where(function ($q) { $q->where('e.estado', 1)->orWhereNull('e.estado'); })
-            ->get();
-
-        $legacyIdToMatrix = [];
-        $empleadosPorMatrix = [];
-        foreach ($rowById as $rowId => $_) $empleadosPorMatrix[$rowId] = [];
-
-        foreach ($empleadosRaw as $emp) {
-            $matrixId = $emp->id_puesto_trabajo_matriz ? (int)$emp->id_puesto_trabajo_matriz : null;
-
-            if (!$matrixId && $emp->id_puesto_trabajo && isset($legacyIdToMatrix[$emp->id_puesto_trabajo])) {
-                $matrixId = $legacyIdToMatrix[$emp->id_puesto_trabajo];
-            }
-            if (!$matrixId && $emp->legacy_nombre) {
-                $norm = $this->normalize($emp->legacy_nombre);
-                if ($norm !== '' && isset($nameToMatrix[$norm])) {
-                    $matrixId = $nameToMatrix[$norm];
-                    if ($emp->id_puesto_trabajo) $legacyIdToMatrix[$emp->id_puesto_trabajo] = $matrixId;
-                }
-            }
-            if ($matrixId && isset($empleadosPorMatrix[$matrixId])) {
-                $empleadosPorMatrix[$matrixId][] = $emp;
-            }
-        }
-
+        // rowById/totEmpleados para lo que realmente se mostrará
+        $rowById      = [];
         $totEmpleados = [];
-        foreach ($empleadosPorMatrix as $matrixId => $lista) $totEmpleados[$matrixId] = count($lista);
-
-        /* ================== 3) COLUMNAS: Capacitaciones obligatorias por puesto ================== */
-        $pcQuery = DB::table('puestos_capacitacion as pc')
-            ->join('capacitacion as c', 'c.id_capacitacion', '=', 'pc.id_capacitacion')
-            ->whereIn('pc.id_puesto_trabajo_matriz', array_keys($rowById));
-
-        if ($buscarCap !== '') {
-            $needle = $this->normalize($buscarCap);
-            $pcQuery->whereRaw('LOWER(c.capacitacion) LIKE ?', ["%{$needle}%"]);
+        foreach ($puestos as $p) {
+            $rid = (int)$p->id_puesto_trabajo_matriz;
+            $rowById[$rid]      = $p;
+            $totEmpleados[$rid] = (int)($empleadosPorMatrix[$rid] ?? 0);
         }
 
-        $pcRows = $pcQuery->get(['pc.id_puesto_trabajo_matriz','c.id_capacitacion','c.capacitacion']);
+        /* ============================================================
+         * 2) COLUMNAS: Capacitaciones obligatorias por puesto matriz
+         * ============================================================ */
+        $pcRows = DB::table('puestos_capacitacion as pc')
+            ->join('capacitacion as c', 'c.id_capacitacion', '=', 'pc.id_capacitacion')
+            ->whereIn('pc.id_puesto_trabajo_matriz', array_keys($rowById))
+            ->when($buscarCap !== '', function ($q) use ($buscarCap) {
+                $needle = $this->normalize($buscarCap);
+                $q->whereRaw('LOWER(c.capacitacion) LIKE ?', ["%{$needle}%"]);
+            })
+            ->get(['pc.id_puesto_trabajo_matriz','c.id_capacitacion','c.capacitacion']);
 
-        $capsDict = [];            // id_capacitacion => obj
-        $isOblig  = [];            // [puesto_matriz][cap_id] = true
+        $capsDict = [];   // id_capacitacion => obj
+        $isOblig  = [];   // [puesto_matriz][cap_id] = true
         foreach ($pcRows as $r) {
             $pid = (int)$r->id_puesto_trabajo_matriz;
-            if (!isset($rowById[$pid])) continue;
+            if (!isset($rowById[$pid])) continue; // seguridad
             $cid = (int)$r->id_capacitacion;
             $isOblig[$pid][$cid] = true;
             if (!isset($capsDict[$cid])) {
@@ -128,75 +173,99 @@ class CapacitacionesRequeridasController extends Controller
         }
 
         $caps = collect(array_values($capsDict))
-                    ->sort(fn($a,$b)=>strnatcasecmp($a->capacitacion,$b->capacitacion))
-                    ->values();
+            ->sort(fn($a,$b)=>strnatcasecmp($a->capacitacion,$b->capacitacion))
+            ->values();
         $capIds = $caps->pluck('id_capacitacion')->all();
 
-        /* ================== 4) RECIBIDAS por puesto_matriz/cap en el año ================== */
-        // Parser robusto para fecha_recibida (VARCHAR)
-        $raw   = "LOWER(TRIM(ac.fecha_recibida))";
-        $clean = "REPLACE(REPLACE(REPLACE(REPLACE($raw,'a. m.',''),'p. m.',''),'a.m.',''),'p.m.','')";
-        $clean = "REPLACE(REPLACE($clean, ',', ''), '  ', ' ')";
-        $firstToken = "SUBSTRING_INDEX($clean, ' ', 1)";
-        $isoToken   = "SUBSTRING_INDEX($clean, 't', 1)";
-        $parsed = "COALESCE(
-            STR_TO_DATE($clean, '%Y-%m-%d'),
-            STR_TO_DATE($clean, '%Y/%m/%d'),
-            STR_TO_DATE($clean, '%d/%m/%Y'),
-            STR_TO_DATE($clean, '%d-%m-%Y'),
-            STR_TO_DATE($clean, '%m/%d/%Y'),
-            STR_TO_DATE($clean, '%m-%d-%Y'),
-            STR_TO_DATE($clean, '%d.%m.%Y'),
-            STR_TO_DATE($firstToken, '%Y-%m-%d'),
-            STR_TO_DATE($firstToken, '%d/%m/%Y'),
-            STR_TO_DATE($firstToken, '%m/%d/%Y'),
-            STR_TO_DATE($firstToken, '%d-%m-%Y'),
-            STR_TO_DATE($isoToken,   '%Y-%m-%d')
-        )";
 
-        // Con capacitacion_instructor → obtener id_capacitacion
-        $recibidasRows = DB::table('asistencia_capacitacion as ac')
-            ->join('empleado as emp', 'emp.id_empleado', '=', 'ac.id_empleado')
-            ->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
-            ->join('capacitacion_instructor as ci', 'ci.id_capacitacion_instructor', '=', 'ac.id_capacitacion_instructor')
-            ->select([
-                'emp.id_puesto_trabajo_matriz',
-                'emp.id_puesto_trabajo',
-                DB::raw('pt.puesto_trabajo as legacy_nombre'),
-                'ci.id_capacitacion',
-                DB::raw('COUNT(DISTINCT ac.id_empleado) as cnt'),
-            ])
-            ->whereIn('ci.id_capacitacion', $capIds)
-            ->whereRaw("YEAR($parsed) = ?", [$anio])
-            ->groupBy('emp.id_puesto_trabajo_matriz','emp.id_puesto_trabajo','pt.puesto_trabajo','ci.id_capacitacion')
-            ->get();
+        // ========== PRE-PROCESAMIENTO DE FECHAS CON MESES EN ESPAÑOL ========== //
+        $meses = [
+            'enero' => '01', 'febrero' => '02', 'marzo' => '03', 'abril' => '04',
+            'mayo' => '05', 'junio' => '06', 'julio' => '07', 'agosto' => '08',
+            'septiembre' => '09', 'setiembre' => '09', 'octubre' => '10',
+            'noviembre' => '11', 'diciembre' => '12'
+        ];
+        $acRows = DB::table('asistencia_capacitacion')->get();
+        $fechasParseadas = [];
+        foreach ($acRows as $ac) {
+            $fecha = mb_strtolower(trim($ac->fecha_recibida ?? ''), 'UTF-8');
+            // Reemplaza meses en español por número
+            foreach ($meses as $mesTxt => $mesNum) {
+                $fecha = preg_replace('/\b'.$mesTxt.'\b/u', $mesNum, $fecha);
+            }
+            // Elimina palabras extra
+            $fecha = preg_replace('/\bde\b/u', '', $fecha);
+            $fecha = preg_replace('/[a\.m\.|p\.m\.|a\.m|p\.m]/u', '', $fecha);
+            $fecha = preg_replace('/\s+/', ' ', $fecha);
+            $fecha = trim($fecha);
+            $fechasParseadas[$ac->id_empleado.'_'.$ac->id_capacitacion_instructor] = $fecha;
+        }
 
-        /*  --- Si NO tuvieras 'capacitacion_instructor', usa esto en su lugar:
-        $recibidasRows = DB::table('asistencia_capacitacion as ac')
-            ->join('empleado as emp', 'emp.id_empleado', '=', 'ac.id_empleado')
-            ->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo')
-            ->select([
-                'emp.id_puesto_trabajo_matriz',
-                'emp.id_puesto_trabajo',
-                DB::raw('pt.puesto_trabajo as legacy_nombre'),
-                DB::raw('ac.id_capacitacion_instructor as id_capacitacion'),
-                DB::raw('COUNT(DISTINCT ac.id_empleado) as cnt'),
-            ])
-            ->whereIn('ac.id_capacitacion_instructor', $capIds)
-            ->whereRaw("YEAR($parsed) = ?", [$anio])
-            ->groupBy('emp.id_puesto_trabajo_matriz','emp.id_puesto_trabajo','pt.puesto_trabajo','ac.id_capacitacion_instructor')
-            ->get();
-        */
+        // Subquery con fechas parseadas
+        $sub = DB::table('asistencia_capacitacion as ac')
+            ->select('ac.id_empleado','ac.id_capacitacion_instructor')
+            ->selectRaw('CAST(ac.fecha_recibida AS DATE) as date_cast')
+            ->selectRaw('ac.fecha_recibida as fecha_str');
 
-        // Mapear a puesto matriz (igual que arriba)
-        $idxEnt = []; // [puesto_matriz][cap_id] => cnt
+        // Query principal usando PHP para filtrar por año
+        $recibidasRows = [];
+        foreach ($sub->get() as $row) {
+            $key = $row->id_empleado.'_'.$row->id_capacitacion_instructor;
+            $fecha = $fechasParseadas[$key] ?? $row->fecha_str;
+            $anioFecha = null;
+            // Intenta extraer año
+            if (preg_match('/(\d{4})/', $fecha, $m)) {
+                $anioFecha = (int)$m[1];
+            }
+            if ($anioFecha === $anio) {
+                $recibidasRows[] = $row;
+            }
+        }
+
+        // Agrupa por puesto/capacitacion
+        $recibidasAgrupadas = [];
         foreach ($recibidasRows as $r) {
+            // Prioridad: id_puesto_trabajo_matriz, si no, mapear por legacy
+            $emp = DB::table('empleado')->where('id_empleado', $r->id_empleado)->first();
             $matrixId = null;
-            if ($r->id_puesto_trabajo_matriz) {
+            if ($emp && $emp->id_puesto_trabajo_matriz) {
+                $matrixId = (int)$emp->id_puesto_trabajo_matriz;
+            } elseif ($emp && $emp->id_puesto_trabajo && isset($legacyIdToMatrix[$emp->id_puesto_trabajo])) {
+                $matrixId = $legacyIdToMatrix[$emp->id_puesto_trabajo];
+            } elseif ($emp && property_exists($emp, 'legacy_nombre') && $emp->legacy_nombre) {
+                $norm = $this->normalize($emp->legacy_nombre);
+                if ($norm !== '' && isset($nameToMatrix[$norm])) {
+                    $matrixId = $nameToMatrix[$norm];
+                    if ($emp->id_puesto_trabajo) $legacyIdToMatrix[$emp->id_puesto_trabajo] = $matrixId;
+                }
+            }
+            if (!$matrixId || !isset($rowById[$matrixId])) continue;
+
+            $capId = DB::table('capacitacion_instructor')->where('id_capacitacion_instructor', $r->id_capacitacion_instructor)->value('id_capacitacion');
+            if (!$capId) continue;
+            if (!isset($recibidasAgrupadas[$matrixId])) $recibidasAgrupadas[$matrixId] = [];
+            if (!isset($recibidasAgrupadas[$matrixId][$capId])) $recibidasAgrupadas[$matrixId][$capId] = [];
+            $recibidasAgrupadas[$matrixId][$capId][$r->id_empleado] = true;
+        }
+
+        // Índice: [puesto_matriz][id_capacitacion] => recibidas (empleados distintos)
+        $idxEnt = [];
+        foreach ($recibidasAgrupadas as $matrixId => $capArr) {
+            foreach ($capArr as $capId => $empArr) {
+                $idxEnt[$matrixId][$capId] = count($empArr);
+            }
+        }
+
+        // Índice: [puesto_matriz][id_capacitacion] => recibidas (empleados distintos)
+        $idxEnt = [];
+        foreach ($recibidasRows as $r) {
+            // Prioridad: id_puesto_trabajo_matriz, si no, mapear por legacy
+            $matrixId = null;
+            if (property_exists($r, 'id_puesto_trabajo_matriz') && $r->id_puesto_trabajo_matriz) {
                 $matrixId = (int)$r->id_puesto_trabajo_matriz;
-            } elseif ($r->id_puesto_trabajo && isset($legacyIdToMatrix[$r->id_puesto_trabajo])) {
+            } elseif (property_exists($r, 'id_puesto_trabajo') && $r->id_puesto_trabajo && isset($legacyIdToMatrix[$r->id_puesto_trabajo])) {
                 $matrixId = $legacyIdToMatrix[$r->id_puesto_trabajo];
-            } elseif ($r->legacy_nombre) {
+            } elseif (property_exists($r, 'legacy_nombre') && $r->legacy_nombre) {
                 $norm = $this->normalize($r->legacy_nombre);
                 if ($norm !== '' && isset($nameToMatrix[$norm])) {
                     $matrixId = $nameToMatrix[$norm];
@@ -205,13 +274,17 @@ class CapacitacionesRequeridasController extends Controller
             }
             if (!$matrixId || !isset($rowById[$matrixId])) continue;
 
-            $capId = (int)$r->id_capacitacion;
-            $idxEnt[$matrixId][$capId] = (int)$r->cnt;
+            $capId = (property_exists($r, 'id_capacitacion')) ? (int)$r->id_capacitacion : null;
+            if ($capId !== null && property_exists($r, 'cnt')) {
+                $idxEnt[$matrixId][$capId] = (int)$r->cnt;
+            }
         }
 
-        /* ================== 5) PIVOT por puesto; TOTALES por capacitación ================== */
+        /* ============================================================
+         * 4) PIVOT por puesto; TOTALES por capacitación
+         * ============================================================ */
         $pivot   = [];
-        $totales = []; // por cap (columna)
+        $totales = [];
         foreach ($caps as $c) $totales[$c->id_capacitacion] = ['req'=>0,'ent'=>0,'pend'=>0];
 
         foreach ($puestos as $p) {
@@ -220,8 +293,8 @@ class CapacitacionesRequeridasController extends Controller
             $reqPuesto = $totEmpleados[$rowId] ?? 0;
 
             foreach ($caps as $c) {
-                if (empty($isOblig[$rowId][$c->id_capacitacion])) {  // no obligatorio → celda en blanco
-                    $row[$c->id_capacitacion] = null;
+                if (empty($isOblig[$rowId][$c->id_capacitacion])) {
+                    $row[$c->id_capacitacion] = null; // no obligatorio → celda en blanco
                     continue;
                 }
                 $ent  = (int)($idxEnt[$rowId][$c->id_capacitacion] ?? 0);
@@ -238,13 +311,15 @@ class CapacitacionesRequeridasController extends Controller
             $pivot[$rowId] = $row;
         }
 
-        /* ================== 6) AGRUPACIÓN por departamento para subtotales y resumen ================== */
+        /* ============================================================
+         * 5) AGRUPACIÓN por DEPARTAMENTO (subtotales y resumen)
+         * ============================================================ */
         $deptPuestos = [];   // dept => [['id'=>rowId, 'row'=>obj], ...]
         $deptEmp     = [];   // dept => total empleados
         $deptPivot   = [];   // dept => [cap_id => ['req','ent','pend']]
 
         foreach ($puestos as $p) {
-            $dep = $p->departamento ?: 'Sin departamento';
+            $dep   = $p->departamento ?: 'Sin departamento';
             $rowId = (int)$p->id_puesto_trabajo_matriz;
 
             $deptPuestos[$dep] = $deptPuestos[$dep] ?? [];
@@ -267,7 +342,6 @@ class CapacitacionesRequeridasController extends Controller
         $deptOrder = array_keys($deptPuestos);
         sort($deptOrder, SORT_NATURAL | SORT_FLAG_CASE);
 
-        // Resumen por depto y gran total
         $deptTotals = [];
         foreach ($deptOrder as $dep) {
             $deptTotals[$dep] = ['req'=>0,'ent'=>0,'pend'=>0];
@@ -279,6 +353,7 @@ class CapacitacionesRequeridasController extends Controller
                 }
             }
         }
+
         $deptGrand = ['req'=>0,'ent'=>0,'pend'=>0];
         foreach ($deptTotals as $t) {
             $deptGrand['req']  += $t['req'];
@@ -290,7 +365,7 @@ class CapacitacionesRequeridasController extends Controller
             'years'=>$years,'anio'=>$anio,'buscarPuesto'=>$buscarPuesto,'buscarCap'=>$buscarCap,
             'puestos'=>$puestos,'caps'=>$caps,'pivot'=>$pivot,'totales'=>$totales,'totEmpleados'=>$totEmpleados,
             'deptOrder'=>$deptOrder,'deptPuestos'=>$deptPuestos,'deptEmp'=>$deptEmp,
-            'deptPivot'=>$deptPivot,'deptTotals'=>$deptTotals,'deptGrand'=>$deptGrand,'rowById'=>$rowById,
+            'deptPivot'=>$deptPivot,'deptTotals'=>$deptTotals,'deptGrand'=>$deptGrand,'rowById'=>$allPtmById,
         ]);
     }
 }

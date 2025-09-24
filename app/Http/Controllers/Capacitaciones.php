@@ -275,7 +275,7 @@ class Capacitaciones extends Controller
         if ($fecha) { $query->where('asica.fecha_recibida', $fecha); }
         if ($capacitacion) { $query->where('capa.capacitacion', $capacitacion); }
 
-        $consulta = $query->paginate(10);
+    $consulta = $query->paginate(10)->appends($request->except('page'));
 
         $empleadosConCap = DB::table('asistencia_capacitacion as asica')
             ->join('empleado as emp', 'asica.id_empleado', '=', 'emp.id_empleado')

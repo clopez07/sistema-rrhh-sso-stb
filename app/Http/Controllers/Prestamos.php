@@ -692,7 +692,7 @@ public function empleadosprestamo(Request $request)
                 DB::raw("IF(p.cobro_extraordinario IS NULL, 'N/A', p.causa) as causa"),
                 'p.plazo_meses',
                 'p.fecha_deposito_prestamo',
-                DB::raw("IF(pla.planilla <> 'PRODUCCION', 'N/A', DATE_FORMAT(p.fecha_primera_cuota, '%Y-%m-%d')) as fecha_primera_cuota"),
+                'p.fecha_primera_cuota',
                 'pla.id_planilla',
                 'pla.planilla',
                 DB::raw("CASE p.estado_prestamo 
@@ -712,7 +712,6 @@ public function empleadosprestamo(Request $request)
         $planilla = DB::select('CALL sp_obtener_planilla()');
         return view('prestamos.prestamos', compact('prestamo', 'empleados', 'planilla'));
     }
-
 
     public function storeprestamo(Request $request)
     {

@@ -78,7 +78,7 @@
             <th style="width:50px;">No.</th>
             <th>ZONA MEDICION</th>
             <th>PUESTO DE TRABAJO</th>
-            <th style="width:130px; text-align:center;" colspan="3">NIVEL DE RUIDO</th>
+            <th style="width:130px; text-align:center;" colspan="4">NIVEL DE RUIDO</th>
             <th style="width:80px; text-align:center;">NRR</th>
             <th style="width:80px; text-align:center;">NRE</th>
             <th style="width:120px; text-align:center;">LIMITES ACEPTABLES</th>
@@ -91,6 +91,7 @@
             <th style="text-align:center;">MAXIMO</th>
             <th style="text-align:center;">MINIMO</th>
             <th style="text-align:center;">PROMEDIO</th>
+            <th style="text-align:center;">OBSERVACIONES</th>
             <th></th>
             <th></th>
             <th></th>
@@ -120,6 +121,7 @@
               <td style="text-align:right;">{{ $fmt($r->nivel_maximo) }}</td>
               <td style="text-align:right;">{{ $fmt($r->nivel_minimo) }}</td>
               <td style="text-align:right;">{{ $fmt($r->calc_promedio) }}</td>
+              <td style="text-align:right;">{{ $fmt($r->observaciones) }}</td>
               <td style="text-align:right;">{{ $fmt($r->calc_nrr) }}</td>
               <td style="text-align:right;">{{ $fmt($r->calc_nre) }}</td>
               <td style="text-align:right;">{{ $fmt($r->lim_final, 0) }}</td>

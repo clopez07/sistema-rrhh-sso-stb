@@ -36,6 +36,9 @@
             <a href="{{ route('capacitaciones.capacitaciones.obligatorias') }}" class="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">
                 Limpiar
             </a>
+            <button type="button" onclick="window.print()" class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">
+                Imprimir
+            </button>
             @endif
         </div>
     </form>

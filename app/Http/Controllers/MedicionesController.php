@@ -206,34 +206,39 @@ public function storeBatch(Request $request)
 
 public function reporteIluminacion(\Illuminate\Http\Request $request)
 {
-    $yearInput = $request->input('year');
+    $yearInput   = $request->input('year');
     $currentYear = (int) now()->year;
-    $year = ($yearInput === null || $yearInput === '') ? $currentYear : (int) $yearInput;
+    $year        = ($yearInput === null || $yearInput === '') ? $currentYear : (int) $yearInput;
 
     $availableYears = collect(
         \DB::table('mediciones_iluminacion as m')
             ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')
             ->pluck('y')
-    )
-        ->filter(fn($v) => !is_null($v))
-        ->map(fn($v) => (int) $v)
-        ->filter(fn($v) => $v > 0)
-        ->unique()
-        ->sortDesc()
-        ->values();
+    )->filter(fn($v) => !is_null($v))
+     ->map(fn($v) => (int) $v)
+     ->filter(fn($v) => $v > 0)
+     ->unique()
+     ->sortDesc()
+     ->values();
 
     if (!$availableYears->contains($year)) {
         $availableYears = $availableYears->concat([$year])->unique()->sortDesc()->values();
     }
 
-    // Todas las localizaciones (para mostrar secciones aunque estén vacías)
+    // Catálogo de localizaciones
     $localizaciones = \DB::table('localizacion')
         ->select('id_localizacion','localizacion')
         ->orderBy('localizacion')
         ->get();
 
-    // Filas (puntos) con puesto — SIN agregaciones
-    $filas = \DB::table('mediciones_iluminacion as m')
+    // EM por localización (si hay varias filas del estándar, tomamos el mayor)
+    $emByLoc = \DB::table('estandar_iluminacion')
+        ->select('id_localizacion', \DB::raw('MAX(em) as em'))
+        ->groupBy('id_localizacion')
+        ->pluck('em', 'id_localizacion');   // [ id_localizacion => em ]
+
+    // Traer filas del año
+    $rows = \DB::table('mediciones_iluminacion as m')
         ->leftJoin('puesto_trabajo_matriz as p','p.id_puesto_trabajo_matriz','=','m.id_puesto_trabajo_matriz')
         ->select(
             'm.id',
@@ -243,16 +248,39 @@ public function reporteIluminacion(\Illuminate\Http\Request $request)
             'p.puesto_trabajo_matriz as puesto',
             'm.promedio',
             'm.limites_aceptables',
-            'm.acciones_correctivas'
+            'm.acciones_correctivas',
+            'm.observaciones'
         )
-        // filtra por año usando inicio o final (lo que haya)
         ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
         ->orderBy('m.id_localizacion')
         ->orderBy('m.punto_medicion')
-        ->get()
+        ->get();
+
+    // ⇨ Completar acciones cuando PROM < LÍMITE
+    $rows = $rows->map(function ($r) use ($emByLoc) {
+        $prom = is_numeric($r->promedio) ? (float)$r->promedio : null;
+        $lim  = is_numeric($r->limites_aceptables)
+                    ? (float)$r->limites_aceptables
+                    : (isset($emByLoc[$r->id_localizacion]) ? (float)$emByLoc[$r->id_localizacion] : null);
+
+        // si ambos son numéricos y el promedio es menor que el límite
+        if ($prom !== null && $lim !== null && $prom < $lim) {
+            if ($r->acciones_correctivas === null || trim($r->acciones_correctivas) === '') {
+                $r->acciones_correctivas = 'Instalar mas lamparas';
+            }
+        }
+
+        // opcional: llevar el límite final para mostrarlo fácil en la vista
+        $r->lim_final = $lim;
+
+        return $r;
+    });
+
+    // Agrupar por localización y ordenar dentro del grupo
+    $filas = $rows
         ->groupBy('id_localizacion')
-        ->map(function ($rows) {
-            return $rows->sort(function ($a, $b) {
+        ->map(function ($group) {
+            return $group->sort(function ($a, $b) {
                 $cmp = strnatcasecmp((string)($a->punto_medicion ?? ''),(string)($b->punto_medicion ?? ''));
                 if ($cmp === 0) {
                     $cmp = strcasecmp((string)($a->puesto ?? ''),(string)($b->puesto ?? ''));
@@ -261,29 +289,19 @@ public function reporteIluminacion(\Illuminate\Http\Request $request)
             })->values();
         });
 
-    // Ya no calculamos “media por localización” ni “límite por localización”;
-    // mostramos los valores de cada fila tal cual vienen en la tabla.
     $puestos = \DB::table('puesto_trabajo_matriz')
         ->select('id_puesto_trabajo_matriz','puesto_trabajo_matriz')
         ->orderBy('puesto_trabajo_matriz')
         ->get();
 
-    // ← NUEVO: EM por localización (si hay varias filas del estándar, tomamos el mayor)
-        $emByLoc = \DB::table('estandar_iluminacion')
-            ->select('id_localizacion', \DB::raw('MAX(em) as em'))
-            ->groupBy('id_localizacion')
-            ->pluck('em', 'id_localizacion');   // [ id_localizacion => em ]
-
-        // ...tu código para $puestos, etc...
-
-        return view('mediciones.reporte_iluminacion', [
-            'year'           => $year,
-            'localizaciones' => $localizaciones,
-            'grupos'         => $filas,
-            'puestos'        => $puestos,
-            'years'          => $availableYears,
-            'emByLoc'        => $emByLoc,       // ← PASAR A LA VISTA
-        ]);
+    return view('mediciones.reporte_iluminacion', [
+        'year'           => $year,
+        'localizaciones' => $localizaciones,
+        'grupos'         => $filas,
+        'puestos'        => $puestos,
+        'years'          => $availableYears,
+        'emByLoc'        => $emByLoc,
+    ]);
 }
 
 

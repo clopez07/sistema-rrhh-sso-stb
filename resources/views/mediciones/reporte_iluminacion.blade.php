@@ -81,7 +81,7 @@
             <th style="width:50px;">No.</th>
             <th>ZONA MEDICION</th>
             <th style="width:300px;">PUESTO DE TRABAJO</th>
-            <th colspan="2" style="width:280px; text-align:center;">NIVEL ILUMINACION</th>
+            <th colspan="3" style="width:280px; text-align:center;">NIVEL ILUMINACION</th>
             <th style="width:220px;">ACCIONES CORRECTIVAS</th>
           </tr>
           <tr class="brand-dark">
@@ -90,6 +90,7 @@
             <th></th>
             <th style="text-align:center;">MEDIA</th>
             <th style="text-align:center;">LIMITES ACEPTABLES</th>
+            <th style="text-align:center;">OBSERVACIONES</th>
             <th></th>
           </tr>
         </thead>
@@ -108,6 +109,9 @@
             </td>
             <td style="text-align:right;">
               {{ isset($emByLoc[$r->id_localizacion]) ? $emByLoc[$r->id_localizacion] : '' }}
+            </td>
+            <td style="text-align:right;">
+              {{ $r->observaciones }}
             </td>
               {{-- Acciones correctivas (editable) --}}
               <td>
