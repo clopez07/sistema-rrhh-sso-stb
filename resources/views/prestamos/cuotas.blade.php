@@ -90,7 +90,7 @@
                         Fecha de Prestamo
                     </th>
                     <th scope="col" class="px-6 py-3">
-                        Fecha Programada
+                        Fecha de Deducción
                     </th>
                     <th scope="col" class="px-6 py-3">
                         Abono a Capital

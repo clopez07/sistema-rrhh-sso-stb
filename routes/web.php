@@ -498,7 +498,9 @@ Route::post('/evaluacion-riesgos/exportar', [EvaluacionRiesgosExportController::
 
     Route::prefix('mediciones')->group(function () {
         Route::get('/captura', [MedicionesController::class, 'captureBatch'])->name('mediciones.captura');
-        Route::post('/captura', [MedicionesController::class, 'storeBatch'])->name('mediciones.captura.store');
+        //Route::post('/captura', [MedicionesController::class, 'storeBatch'])->name('mediciones.captura.store');
+        Route::post('/mediciones/captura/save', [MedicionesController::class, 'saveBatch'])->name('mediciones.captura.save');
+        Route::get('/mediciones/captura/prefill', [MedicionesController::class, 'prefill'])->name('mediciones.captura.prefill');
     });
 
      Route::get('/mediciones/iluminacion/reporte', [MedicionesController::class, 'reporteIluminacion'])

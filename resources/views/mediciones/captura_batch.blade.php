@@ -52,7 +52,7 @@
 
       <h1 class="text-2xl font-bold">Captura de mediciones</h1>
 
-      <form method="POST" action="{{ route('mediciones.captura.store') }}" class="space-y-8">
+        <form method="POST" action="{{ route('mediciones.captura.save') }}" class="space-y-8">
         @csrf
 
         {{-- CABECERA COMÚN --}}
@@ -183,8 +183,23 @@
           </div>
         </div>
 
+        <!-- Fechas originales (para validar "guardar como nuevo") -->
+        <input type="hidden" name="orig_fecha_inicio_ruido" id="orig_fecha_inicio_ruido">
+        <input type="hidden" name="orig_fecha_final_ruido"  id="orig_fecha_final_ruido">
+        <input type="hidden" name="orig_fecha_inicio_lux"   id="orig_fecha_inicio_lux">
+        <input type="hidden" name="orig_fecha_final_lux"    id="orig_fecha_final_lux">
+
+        <!-- IDs existentes (para detectar borrados en update) -->
+        <input type="hidden" name="existing_ruido_ids" id="existing_ruido_ids">
+        <input type="hidden" name="existing_lux_ids"   id="existing_lux_ids">
+
         <div style="display:flex;gap:.75rem;">
-          <button type="submit" class="btn btn-primary">Guardar mediciones</button>
+          <button type="submit" name="mode" value="create" class="btn btn-primary">
+            Guardar como nuevo registro
+          </button>
+          <button type="submit" name="mode" value="update" class="btn">
+            Editar existente
+          </button>
           <button type="reset" class="btn">Limpiar</button>
         </div>
       </form>
@@ -202,7 +217,7 @@
       <script>
       (function(){
         // ---------- Referencias base ----------
-        const form     = document.querySelector('form[action="{{ route('mediciones.captura.store') }}"]') || document.querySelector('form');
+        const form     = document.querySelector('form[action="{{ route('mediciones.captura.save') }}"]') || document.querySelector('form');
         const inputTxt = document.getElementById('localizacion_txt');
         const hiddenId = document.getElementById('id_localizacion');
         const help     = document.getElementById('loc_help');
@@ -236,6 +251,7 @@
             <td class="px-2 py-1">
               <input list="dl-puestos" id="ruido_puesto_txt_${rowIdx}" class="control control--lg" placeholder="Escribe y elige puesto…">
               <input type="hidden" name="ruido_puntos[${rowIdx}][id_puesto_trabajo_matriz]" id="ruido_puesto_id_${rowIdx}">
+              <input type="hidden" name="ruido_puntos[${rowIdx}][id_row]" id="ruido_row_id_${rowIdx}">
             </td>
             <td class="px-2 py-1 text-right"><input type="number" step="0.01" name="ruido_puntos[${rowIdx}][nivel_maximo]" class="control control--xs control--right"></td>
             <td class="px-2 py-1 text-right"><input type="number" step="0.01" name="ruido_puntos[${rowIdx}][nivel_minimo]" class="control control--xs control--right"></td>
@@ -261,6 +277,7 @@
             <td class="px-2 py-1">
               <input list="dl-puestos" id="lux_puesto_txt_${rowIdx}" class="control control--lg" placeholder="Escribe y elige puesto…">
               <input type="hidden" name="iluminacion_puntos[${rowIdx}][id_puesto_trabajo_matriz]" id="lux_puesto_id_${rowIdx}">
+              <input type="hidden" name="iluminacion_puntos[${rowIdx}][id_row]" id="lux_row_id_${rowIdx}">
             </td>
             <td class="px-2 py-1 text-right"><input type="number" step="0.01" name="iluminacion_puntos[${rowIdx}][promedio]" class="control control--xs control--right"></td>
             <td class="px-2 py-1 text-right"><input type="number" step="0.01" name="iluminacion_puntos[${rowIdx}][limites_aceptables]" class="control control--xs control--right"></td>
@@ -292,55 +309,106 @@
         function applyTemplate(data){
           if (!data || !data.ok) return;
 
-          // Cabecera sugerida
-          if (data.base) {
-            setIf('input[name="departamento"]',      data.base.departamento);
-            setIf('input[name="instrumento_ruido"]', data.base.instrumento_ruido);
-            setIf('input[name="serie_ruido"]',       data.base.serie_ruido);
-            setIf('input[name="marca_ruido"]',       data.base.marca_ruido);
-            setIf('input[name="nrr"]',               data.base.nrr);
-            setIf('input[name="instrumento_lux"]',   data.base.instrumento_lux);
-            setIf('input[name="serie_lux"]',         data.base.serie_lux);
-            setIf('input[name="marca_lux"]',         data.base.marca_lux);
-          }
-
-          // Limpiar tablas
+          // Limpia tablas y contadores
           ruidoBody.innerHTML = ''; luxBody.innerHTML = '';
           idxR = 0; idxL = 0;
 
-          // Rellenar RUIdo
+          // ---- Cabecera meta RUIdo
+          if (data.ruido_meta) {
+            setIf('input[name="departamento"]',        data.ruido_meta.departamento);
+            setIf('input[name="nombre_observador"]',   data.ruido_meta.nombre_observador); // <--- NUEVO
+            setIf('input[name="instrumento_ruido"]',   data.ruido_meta.instrumento);
+            setIf('input[name="serie_ruido"]',         data.ruido_meta.serie);
+            setIf('input[name="marca_ruido"]',         data.ruido_meta.marca);
+            setIf('input[name="nrr"]',                 data.ruido_meta.nrr);
+
+            setIf('input[name="fecha_realizacion_inicio"]', data.ruido_meta.fecha_inicio || '');
+            setIf('input[name="fecha_realizacion_final"]',  data.ruido_meta.fecha_final || '');
+
+            // originales para validar "create"
+            const oir = document.getElementById('orig_fecha_inicio_ruido');
+            const ofr = document.getElementById('orig_fecha_final_ruido');
+            if (oir) oir.value = data.ruido_meta.fecha_inicio || '';
+            if (ofr) ofr.value = data.ruido_meta.fecha_final  || '';
+          } else {
+            // si no hay ruido, limpia originales
+            setIf('input[name="instrumento_ruido"]','');
+            setIf('input[name="serie_ruido"]','');
+            setIf('input[name="marca_ruido"]','');
+            setIf('input[name="nrr"]','');
+            const oir = document.getElementById('orig_fecha_inicio_ruido');
+            const ofr = document.getElementById('orig_fecha_final_ruido');
+            if (oir) oir.value = '';
+            if (ofr) ofr.value = '';
+          }
+
+          // ---- Cabecera meta ILUMINACIÓN
+          if (data.lux_meta) {
+            setIf('input[name="departamento"]',      data.lux_meta.departamento); // si ruido no puso
+            setIf('input[name="instrumento_lux"]',   data.lux_meta.instrumento);
+            setIf('input[name="serie_lux"]',         data.lux_meta.serie);
+            setIf('input[name="marca_lux"]',         data.lux_meta.marca);
+
+            // si no había fechas (sin ruido), usa estas
+            const f1 = document.querySelector('input[name="fecha_realizacion_inicio"]');
+            const f2 = document.querySelector('input[name="fecha_realizacion_final"]');
+            if (f1 && !f1.value) f1.value = data.lux_meta.fecha_inicio || '';
+            if (f2 && !f2.value) f2.value = data.lux_meta.fecha_final  || '';
+
+            // originales para validar "create"
+            const oil = document.getElementById('orig_fecha_inicio_lux');
+            const ofl = document.getElementById('orig_fecha_final_lux');
+            if (oil) oil.value = data.lux_meta.fecha_inicio || '';
+            if (ofl) ofl.value = data.lux_meta.fecha_final  || '';
+          } else {
+            const oil = document.getElementById('orig_fecha_inicio_lux');
+            const ofl = document.getElementById('orig_fecha_final_lux');
+            if (oil) oil.value = '';
+            if (ofl) ofl.value = '';
+          }
+
+          // ---- Filas RUIdo
+          const noiseIds = [];
           (data.ruido_rows || []).forEach(row => {
             const { rowIdx } = addRuidoRow();
             const puestoName = (window.PUESTO_BY_ID && window.PUESTO_BY_ID[row.id_puesto_trabajo_matriz]) || '';
             setIf(`input[name="ruido_puntos[${rowIdx}][punto_medicion]"]`, row.punto_medicion || '');
             setIf(`#ruido_puesto_id_${rowIdx}`, row.id_puesto_trabajo_matriz || '');
             setIf(`#ruido_puesto_txt_${rowIdx}`, puestoName);
-            if (row.limites_aceptables != null) {
-              setIf(`input[name="ruido_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
-            }
+            setIf(`input[name="ruido_puntos[${rowIdx}][nivel_maximo]"]`, row.nivel_maximo);
+            setIf(`input[name="ruido_puntos[${rowIdx}][nivel_minimo]"]`, row.nivel_minimo);
+            setIf(`input[name="ruido_puntos[${rowIdx}][nivel_promedio]"]`, row.nivel_promedio);
+            setIf(`input[name="ruido_puntos[${rowIdx}][nre]"]`, row.nre);
+            setIf(`input[name="ruido_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
+            setIf(`input[name="ruido_puntos[${rowIdx}][observaciones]"]`, row.observaciones);
+            setIf(`#ruido_row_id_${rowIdx}`, row.id_row || '');
+            if (row.id_row) noiseIds.push(row.id_row);
           });
+          const exR = document.getElementById('existing_ruido_ids');
+          if (exR) exR.value = noiseIds.join(',');
 
-          // Rellenar ILUMINACIÓN
+          // ---- Filas ILUMINACIÓN
+          const luxIds = [];
           (data.lux_rows || []).forEach(row => {
             const { rowIdx } = addLuxRow();
             const puestoName = (window.PUESTO_BY_ID && window.PUESTO_BY_ID[row.id_puesto_trabajo_matriz]) || '';
             setIf(`input[name="iluminacion_puntos[${rowIdx}][punto_medicion]"]`, row.punto_medicion || '');
             setIf(`#lux_puesto_id_${rowIdx}`, row.id_puesto_trabajo_matriz || '');
             setIf(`#lux_puesto_txt_${rowIdx}`, puestoName);
-            if (row.limites_aceptables != null) {
-              setIf(`input[name="iluminacion_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
-            }
+            setIf(`input[name="iluminacion_puntos[${rowIdx}][promedio]"]`, row.promedio);
+            setIf(`input[name="iluminacion_puntos[${rowIdx}][limites_aceptables]"]`, row.limites_aceptables);
+            setIf(`input[name="iluminacion_puntos[${rowIdx}][observaciones]"]`, row.observaciones);
+            setIf(`#lux_row_id_${rowIdx}`, row.id_row || '');
+            if (row.id_row) luxIds.push(row.id_row);
           });
-
-          // Fallback: si no hay filas en la plantilla, deja una vacía de cada tipo
-          if ((data.ruido_rows || []).length === 0) addRuidoRow();
-          if ((data.lux_rows  || []).length === 0) addLuxRow();
+          const exL = document.getElementById('existing_lux_ids');
+          if (exL) exL.value = luxIds.join(',');
 
           // Ayuda visual
           if (help) {
-            const yrR = data.year_ruido ? `Ruido: ${data.year_ruido}` : 'Ruido: sin datos';
-            const yrL = data.year_lux  ? `Iluminación: ${data.year_lux}` : 'Iluminación: sin datos';
-            help.textContent = `Plantilla aplicada (${yrR} / ${yrL}).`;
+            const rTxt = data.ruido_rows && data.ruido_rows.length ? 'último lote RUIdo cargado' : 'sin RUIdo';
+            const lTxt = data.lux_rows && data.lux_rows.length ? 'último lote ILUMINACIÓN cargado' : 'sin ILUMINACIÓN';
+            help.textContent = `Plantilla: ${rTxt} / ${lTxt}.`;
           }
         }
 

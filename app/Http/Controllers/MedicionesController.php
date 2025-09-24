@@ -102,16 +102,21 @@ class MedicionesController extends Controller
     ]);
 }
 
-public function storeBatch(Request $request)
+public function saveBatch(Request $request)
 {
-    // 1) Cabecera: SOLO id_localizacion es obligatoria. Lo demás es opcional.
+    $mode = $request->input('mode'); // 'create' | 'update'
+    if (!in_array($mode, ['create','update'], true)) {
+        return back()->withErrors(['mode'=>'Acción inválida'])->withInput();
+    }
+
+    // Cabecera común
     $base = $request->validate([
         'id_localizacion'          => ['required','integer','exists:localizacion,id_localizacion'],
         'departamento'             => ['nullable','string','max:500'],
         'nombre_observador'        => ['nullable','string','max:500'],
         'fecha_realizacion_inicio' => ['nullable','date'],
         'fecha_realizacion_final'  => ['nullable','date'],
-        // Los instrumentos/serie/marca de ambos tipos son opcionales
+
         'instrumento_ruido'        => ['nullable','string','max:150'],
         'serie_ruido'              => ['nullable','string','max:200'],
         'marca_ruido'              => ['nullable','string','max:100'],
@@ -120,15 +125,26 @@ public function storeBatch(Request $request)
         'instrumento_lux'          => ['nullable','string','max:150'],
         'serie_lux'                => ['nullable','string','max:200'],
         'marca_lux'                => ['nullable','string','max:100'],
+
+        // originales (ocultos) para validar "create"
+        'orig_fecha_inicio_ruido'  => ['nullable','date'],
+        'orig_fecha_final_ruido'   => ['nullable','date'],
+        'orig_fecha_inicio_lux'    => ['nullable','date'],
+        'orig_fecha_final_lux'     => ['nullable','date'],
+
+        // ids existentes (para detectar borrados en update)
+        'existing_ruido_ids'       => ['nullable','string'],
+        'existing_lux_ids'         => ['nullable','string'],
     ]);
 
     $ruidoP = $request->input('ruido_puntos', []);
     $luxP   = $request->input('iluminacion_puntos', []);
 
-    // 2) Validaciones por tipo (todo opcional salvo el id_puesto en cada fila existente)
+    // Validación de filas
     if (!empty($ruidoP)) {
         $request->validate([
             'ruido_puntos'                                  => ['array'],
+            'ruido_puntos.*.id_row'                         => ['nullable','integer'],
             'ruido_puntos.*.id_puesto_trabajo_matriz'       => ['required','integer','exists:puesto_trabajo_matriz,id_puesto_trabajo_matriz'],
             'ruido_puntos.*.punto_medicion'                 => ['nullable','string','max:500'],
             'ruido_puntos.*.nivel_maximo'                   => ['nullable','numeric'],
@@ -139,10 +155,10 @@ public function storeBatch(Request $request)
             'ruido_puntos.*.observaciones'                  => ['nullable','string'],
         ]);
     }
-
     if (!empty($luxP)) {
         $request->validate([
             'iluminacion_puntos'                             => ['array'],
+            'iluminacion_puntos.*.id_row'                    => ['nullable','integer'],
             'iluminacion_puntos.*.id_puesto_trabajo_matriz'  => ['required','integer','exists:puesto_trabajo_matriz,id_puesto_trabajo_matriz'],
             'iluminacion_puntos.*.punto_medicion'            => ['nullable','string','max:500'],
             'iluminacion_puntos.*.promedio'                  => ['nullable','numeric'],
@@ -151,15 +167,43 @@ public function storeBatch(Request $request)
         ]);
     }
 
-    // 3) Inserción (conversión segura a null para vacíos)
-    $null = fn($v) => ($v === '' || $v === null) ? null : $v;
+    // Reglas "Guardar como nuevo": si hay filas de ese tipo, debe cambiar al menos una fecha
+    if ($mode === 'create') {
+        $err = [];
 
-    DB::transaction(function () use ($request, $base, $ruidoP, $luxP, $null) {
-        $fkLo = (int)$base['id_localizacion'];
+        if (!empty($ruidoP)) {
+            $oldI = $base['orig_fecha_inicio_ruido'] ?? null;
+            $oldF = $base['orig_fecha_final_ruido']  ?? null;
+            $newI = $base['fecha_realizacion_inicio'] ?? null;
+            $newF = $base['fecha_realizacion_final']  ?? null;
+            // Debe existir al menos una fecha y la pareja no debe ser exactamente igual a la original
+            if (($newI === $oldI) && ($newF === $oldF)) {
+                $err['fecha_realizacion_inicio'] = 'Para RUIdo, cambia la(s) fecha(s) para guardar como nuevo.';
+            }
+        }
+        if (!empty($luxP)) {
+            $oldI = $base['orig_fecha_inicio_lux'] ?? null;
+            $oldF = $base['orig_fecha_final_lux']  ?? null;
+            $newI = $base['fecha_realizacion_inicio'] ?? null;
+            $newF = $base['fecha_realizacion_final']  ?? null;
+            if (($newI === $oldI) && ($newF === $oldF)) {
+                $err['fecha_realizacion_inicio'] = 'Para ILUMINACIÓN, cambia la(s) fecha(s) para guardar como nuevo.';
+            }
+        }
+        if ($err) {
+            return back()->withErrors($err)->withInput();
+        }
+    }
 
-        // --- Ruido (cada fila requiere id_puesto_trabajo_matriz, lo demás puede ir null)
+    $null = fn($v)=> ($v === '' || $v === null) ? null : $v;
+    $fkLo = (int)$base['id_localizacion'];
+
+    DB::transaction(function() use ($mode, $request, $base, $ruidoP, $luxP, $null, $fkLo) {
+
+        // ---------- RUIdo ----------
+        $postedIdsR = [];
         foreach ($ruidoP as $row) {
-            DB::table('mediciones_ruido')->insert([
+            $payload = [
                 'departamento'              => $null($base['departamento']          ?? null),
                 'fecha_realizacion_inicio'  => $null($base['fecha_realizacion_inicio'] ?? null),
                 'fecha_realizacion_final'   => $null($base['fecha_realizacion_final']  ?? null),
@@ -170,19 +214,41 @@ public function storeBatch(Request $request)
                 'nrr'                       => $null($request->input('nrr')),
                 'id_localizacion'           => $fkLo,
                 'punto_medicion'            => $null($row['punto_medicion']         ?? null),
-                'id_puesto_trabajo_matriz'  => (int)$row['id_puesto_trabajo_matriz'],
+                'id_puesto_trabajo_matriz'  => (int)($row['id_puesto_trabajo_matriz'] ?? 0),
                 'nivel_maximo'              => $null($row['nivel_maximo']           ?? null),
                 'nivel_minimo'              => $null($row['nivel_minimo']           ?? null),
                 'nivel_promedio'            => $null($row['nivel_promedio']         ?? null),
                 'nre'                       => $null($row['nre']                     ?? null),
                 'limites_aceptables'        => $null($row['limites_aceptables']     ?? null),
                 'observaciones'             => $null($row['observaciones']          ?? null),
-            ]);
+            ];
+
+            $idRow = $row['id_row'] ?? null;
+            if ($mode === 'update' && $idRow) {
+                DB::table('mediciones_ruido')
+                    ->where('id_mediciones_ruido', $idRow)
+                    ->update($payload);
+                $postedIdsR[] = (int)$idRow;
+            } else {
+                DB::table('mediciones_ruido')->insert($payload);
+            }
         }
 
-        // --- Iluminación (cada fila requiere id_puesto_trabajo_matriz, lo demás puede ir null)
+        // Eliminar filas quitadas en UPDATE (opcional)
+        if ($mode === 'update') {
+            $existing = array_filter(array_map('intval', explode(',', (string)($base['existing_ruido_ids'] ?? ''))));
+            if ($existing) {
+                $toDelete = array_diff($existing, $postedIdsR);
+                if ($toDelete) {
+                    DB::table('mediciones_ruido')->whereIn('id_mediciones_ruido', $toDelete)->delete();
+                }
+            }
+        }
+
+        // ---------- ILUMINACIÓN ----------
+        $postedIdsL = [];
         foreach ($luxP as $row) {
-            DB::table('mediciones_iluminacion')->insert([
+            $payload = [
                 'departamento'              => $null($base['departamento']          ?? null),
                 'fecha_realizacion_inicio'  => $null($base['fecha_realizacion_inicio'] ?? null),
                 'fecha_realizacion_final'   => $null($base['fecha_realizacion_final']  ?? null),
@@ -192,16 +258,36 @@ public function storeBatch(Request $request)
                 'marca'                     => $null($request->input('marca_lux')),
                 'id_localizacion'           => $fkLo,
                 'punto_medicion'            => $null($row['punto_medicion']         ?? null),
-                'id_puesto_trabajo_matriz'  => (int)$row['id_puesto_trabajo_matriz'],
+                'id_puesto_trabajo_matriz'  => (int)($row['id_puesto_trabajo_matriz'] ?? 0),
                 'promedio'                  => $null($row['promedio']               ?? null),
                 'limites_aceptables'        => $null($row['limites_aceptables']     ?? null),
                 'observaciones'             => $null($row['observaciones']          ?? null),
-            ]);
+            ];
+
+            $idRow = $row['id_row'] ?? null;
+            if ($mode === 'update' && $idRow) {
+                DB::table('mediciones_iluminacion')
+                    ->where('id', $idRow)
+                    ->update($payload);
+                $postedIdsL[] = (int)$idRow;
+            } else {
+                DB::table('mediciones_iluminacion')->insert($payload);
+            }
+        }
+
+        if ($mode === 'update') {
+            $existing = array_filter(array_map('intval', explode(',', (string)($base['existing_lux_ids'] ?? ''))));
+            if ($existing) {
+                $toDelete = array_diff($existing, $postedIdsL);
+                if ($toDelete) {
+                    DB::table('mediciones_iluminacion')->whereIn('id', $toDelete)->delete();
+                }
+            }
         }
     });
 
-    // Nota: ya NO obligamos a que haya al menos un punto. Si no mandan puntos, no inserta nada.
-    return redirect()->route('mediciones.captura')->with('ok', 'Mediciones guardadas (datos opcionales permitidos).');
+    return redirect()->route('mediciones.captura')
+        ->with('ok', $mode === 'create' ? 'Guardado como nuevo registro.' : 'Cambios guardados en el registro existente.');
 }
 
 public function reporteIluminacion(\Illuminate\Http\Request $request)
@@ -1252,7 +1338,6 @@ public function exportIluminacion(Request $request)
     $spreadsheet->disconnectWorksheets();
     unset($spreadsheet);
 
-    // 🔒 Evitar corrupción por compresión/buffers
     if (function_exists('ini_set')) { @ini_set('zlib.output_compression', 'Off'); }
     while (ob_get_level() > 0) { @ob_end_clean(); }
 
@@ -1626,103 +1711,128 @@ public function prefill(Request $request)
         return response()->json(['ok' => false, 'error' => 'id_localizacion requerido'], 422);
     }
 
-    // Año más reciente con datos por tipo
-    $lastYrR = DB::table('mediciones_ruido')
+    // ---------- RUIDO: lote más reciente por (fecha_inicio, fecha_fin) ----------
+    $lastR = DB::table('mediciones_ruido')
         ->where('id_localizacion', $id)
-        ->selectRaw('MAX(YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final))) as y')
-        ->value('y');
+        ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
+        ->orderByDesc('id_mediciones_ruido')
+        ->first([
+            'departamento',
+            'nombre_observador',
+            'instrumento',
+            'serie',
+            'marca',
+            'nrr',
+            'fecha_realizacion_inicio',
+            'fecha_realizacion_final',
+        ]);
 
-    $lastYrL = DB::table('mediciones_iluminacion')
-        ->where('id_localizacion', $id)
-        ->selectRaw('MAX(YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final))) as y')
-        ->value('y');
-
-    // Meta para RUIdo (instrumento/serie/marca/NRR/departamento) del año más reciente
-    $ruidoMeta = null;
-    if ($lastYrR) {
-        $ruidoMeta = DB::table('mediciones_ruido')
-            ->where('id_localizacion', $id)
-            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrR])
-            ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
-            ->orderByDesc('id')
-            ->first(['instrumento','serie','marca','nrr','departamento']);
-    }
-
-    // Meta para ILUMINACIÓN (instrumento/serie/marca/departamento)
-    $luxMeta = null;
-    if ($lastYrL) {
-        $luxMeta = DB::table('mediciones_iluminacion')
-            ->where('id_localizacion', $id)
-            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrL])
-            ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
-            ->orderByDesc('id')
-            ->first(['instrumento','serie','marca','departamento']);
-    }
-
-    // Plantilla de filas: agrupamos por (puesto, punto) y tomamos (si existe) un límite típico
     $ruidoRows = collect();
-    if ($lastYrR) {
-        $ruidoRows = DB::table('mediciones_ruido')
+    if ($lastR) {
+        $ruidoRows = DB::table('mediciones_ruido as m')
+            ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+            ->where('m.id_localizacion', $id)
+            ->where(function ($qq) use ($lastR) {
+                if (!is_null($lastR->fecha_realizacion_inicio)) {
+                    $qq->where('m.fecha_realizacion_inicio', $lastR->fecha_realizacion_inicio);
+                } else {
+                    $qq->whereNull('m.fecha_realizacion_inicio');
+                }
+                if (!is_null($lastR->fecha_realizacion_final)) {
+                    $qq->where('m.fecha_realizacion_final', $lastR->fecha_realizacion_final);
+                } else {
+                    $qq->whereNull('m.fecha_realizacion_final');
+                }
+            })
             ->select(
-                'id_puesto_trabajo_matriz',
-                'punto_medicion',
-                DB::raw('MAX(limites_aceptables) AS limites_aceptables')
+                'm.id_mediciones_ruido as id_row',
+                'm.id_puesto_trabajo_matriz',
+                'm.punto_medicion',
+                'm.nivel_maximo',
+                'm.nivel_minimo',
+                'm.nivel_promedio',
+                'm.nre',
+                'm.limites_aceptables',
+                'm.observaciones'
             )
-            ->where('id_localizacion', $id)
-            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrR])
-            ->groupBy('id_puesto_trabajo_matriz','punto_medicion')
-            ->orderBy('punto_medicion')
-            ->get()
-            ->map(function($r){
-                return [
-                    'id_puesto_trabajo_matriz' => (int) $r->id_puesto_trabajo_matriz,
-                    'punto_medicion'           => (string) ($r->punto_medicion ?? ''),
-                    'limites_aceptables'       => $r->limites_aceptables !== null ? (float) $r->limites_aceptables : null,
-                ];
-            });
+            ->orderBy('m.punto_medicion')
+            ->orderBy('m.id_puesto_trabajo_matriz')
+            ->get();
     }
+
+    // ---------- ILUMINACIÓN: lote más reciente por (fecha_inicio, fecha_fin) ----------
+    $lastL = DB::table('mediciones_iluminacion')
+        ->where('id_localizacion', $id)
+        ->orderByRaw('COALESCE(fecha_realizacion_inicio, fecha_realizacion_final) DESC')
+        ->orderByDesc('id')
+        ->first([
+            'departamento',
+            'nombre_observador',
+            'instrumento',
+            'serie',
+            'marca',
+            'fecha_realizacion_inicio',
+            'fecha_realizacion_final',
+        ]);
 
     $luxRows = collect();
-    if ($lastYrL) {
-        $luxRows = DB::table('mediciones_iluminacion')
+    if ($lastL) {
+        $luxRows = DB::table('mediciones_iluminacion as m')
+            ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+            ->where('m.id_localizacion', $id)
+            ->where(function ($qq) use ($lastL) {
+                if (!is_null($lastL->fecha_realizacion_inicio)) {
+                    $qq->where('m.fecha_realizacion_inicio', $lastL->fecha_realizacion_inicio);
+                } else {
+                    $qq->whereNull('m.fecha_realizacion_inicio');
+                }
+                if (!is_null($lastL->fecha_realizacion_final)) {
+                    $qq->where('m.fecha_realizacion_final', $lastL->fecha_realizacion_final);
+                } else {
+                    $qq->whereNull('m.fecha_realizacion_final');
+                }
+            })
             ->select(
-                'id_puesto_trabajo_matriz',
-                'punto_medicion',
-                DB::raw('MAX(limites_aceptables) AS limites_aceptables')
+                'm.id as id_row',
+                'm.id_puesto_trabajo_matriz',
+                'm.punto_medicion',
+                'm.promedio',
+                'm.limites_aceptables',
+                'm.observaciones'
             )
-            ->where('id_localizacion', $id)
-            ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$lastYrL])
-            ->groupBy('id_puesto_trabajo_matriz','punto_medicion')
-            ->orderBy('punto_medicion')
-            ->get()
-            ->map(function($r){
-                return [
-                    'id_puesto_trabajo_matriz' => (int) $r->id_puesto_trabajo_matriz,
-                    'punto_medicion'           => (string) ($r->punto_medicion ?? ''),
-                    'limites_aceptables'       => $r->limites_aceptables !== null ? (float) $r->limites_aceptables : null,
-                ];
-            });
+            ->orderBy('m.punto_medicion')
+            ->orderBy('m.id_puesto_trabajo_matriz')
+            ->get();
     }
 
-    $base = [
-        'departamento'     => $ruidoMeta->departamento ?? $luxMeta->departamento ?? null,
-        'instrumento_ruido'=> $ruidoMeta->instrumento ?? null,
-        'serie_ruido'      => $ruidoMeta->serie ?? null,
-        'marca_ruido'      => $ruidoMeta->marca ?? null,
-        'nrr'              => $ruidoMeta->nrr ?? null,
-        'instrumento_lux'  => $luxMeta->instrumento ?? null,
-        'serie_lux'        => $luxMeta->serie ?? null,
-        'marca_lux'        => $luxMeta->marca ?? null,
-    ];
-
     return response()->json([
-        'ok'          => true,
-        'base'        => $base,
-        'ruido_rows'  => $ruidoRows,
-        'lux_rows'    => $luxRows,
-        'year_ruido'  => $lastYrR ? (int) $lastYrR : null,
-        'year_lux'    => $lastYrL ? (int) $lastYrL : null,
+        'ok' => true,
+
+        'ruido_meta' => $lastR ? [
+            'departamento'       => $lastR->departamento,
+            'nombre_observador'  => $lastR->nombre_observador,
+            'instrumento'        => $lastR->instrumento,
+            'serie'              => $lastR->serie,
+            'marca'              => $lastR->marca,
+            'nrr'                => $lastR->nrr,
+            'fecha_inicio'       => $lastR->fecha_realizacion_inicio,
+            'fecha_final'        => $lastR->fecha_realizacion_final,
+        ] : null,
+        'ruido_rows' => $ruidoRows,
+
+        'lux_meta' => $lastL ? [
+            'departamento'       => $lastL->departamento,
+            'nombre_observador'  => $lastL->nombre_observador,
+            'instrumento'        => $lastL->instrumento,
+            'serie'              => $lastL->serie,
+            'marca'              => $lastL->marca,
+            'fecha_inicio'       => $lastL->fecha_realizacion_inicio,
+            'fecha_final'        => $lastL->fecha_realizacion_final,
+        ] : null,
+        'lux_rows' => $luxRows,
     ]);
 }
+
+
 
 }
