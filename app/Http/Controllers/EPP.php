@@ -27,7 +27,8 @@ class EPP extends Controller
             'e.codigo',
             'e.marca',
             'tp.id_tipo_proteccion',
-            'tp.tipo_proteccion'
+            'tp.tipo_proteccion',
+            'e.permanente'
         )
         ->when($request->search, function ($query, $search) {
             return $query->where('e.equipo', 'like', "%{$search}%");
@@ -46,6 +47,7 @@ class EPP extends Controller
             'codigo' => $request->input('codigo'),
             'marca' => $request->input('marca'),
             'id_tipo_proteccion' => $request->input('id_tipo_proteccion'),
+            'permanente' => $request->has('permanente') ? 'SI' : 'NO',
         ]);
 
         return redirect()->back()->with('success', 'Agregado correctamente');
@@ -60,6 +62,7 @@ class EPP extends Controller
                 'codigo' => $request->input('codigo'),
                 'marca' => $request->input('marca'),
                 'id_tipo_proteccion' => $request->input('id_tipo_proteccion'),
+                'permanente' => $request->has('permanente') ? 'SI' : 'NO',
             ]);
 
         return redirect()->back()->with('success', 'capacitacion actualizado correctamente');

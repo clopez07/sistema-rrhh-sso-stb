@@ -31,7 +31,7 @@
      style="background:#64748b;border-color:#64748b;">
     Descargar Excel (Ruido AZUL)
   </a>
-  <a class="btn" href="{{ route('mediciones.export.ruido.plantilla') }}">
+  <a class="btn" href="{{ route('mediciones.export.ruido.plantilla', ['id_localizacion' => request('id_localizacion'), 'year' => $year]) }}">
   Descargar Excel (Plantilla VERDE RUIDO)
 </a>
   <form method="GET" action="{{ route('mediciones.ruido.reporte') }}"

@@ -39,7 +39,22 @@ class QuimicosPorPuestoController extends Controller
                     $q->where('q.nombre_comercial', 'like', "%{$buscarQuimico}%");
                 })
                 ->orderBy('q.nombre_comercial')
-                ->get(['q.id_quimico','q.nombre_comercial','q.uso','q.proveedor']);
+                ->get([
+                    'q.id_quimico',
+                    'q.nombre_comercial',
+                    'q.uso',
+                    'q.proveedor',
+                    'q.salud',
+                    'q.inflamabilidad',
+                    'q.reactividad',
+                    'q.ninguno',
+                    'q.particulas_polvo',
+                    'q.sustancias_corrosivas',
+                    'q.sustancias_toxicas',
+                    'q.sustancias_irritantes',
+                    'qp.frecuencia',
+                    'qp.duracion_exposicion'
+                ]);
 
             if ($quimicos->count()) {
                 $ids = $quimicos->pluck('id_quimico')->all();
@@ -60,6 +75,16 @@ class QuimicosPorPuestoController extends Controller
                     'descripcion_general'=> $puesto?->descripcion_general,
                     'quimico'            => $q,
                     'exposicion'         => isset($exposPorQuimico[$q->id_quimico]) ? implode(', ', $exposPorQuimico[$q->id_quimico]) : null,
+                    'frecuencia'         => $q->frecuencia ?? null,
+                    'duracion_exposicion'=> $q->duracion_exposicion ?? null,
+                    'ninguno'            => $q->ninguno ?? null,
+                    'particulas_polvo'   => $q->particulas_polvo ?? null,
+                    'sustancias_corrosivas' => $q->sustancias_corrosivas ?? null,
+                    'sustancias_toxicas' => $q->sustancias_toxicas ?? null,
+                    'sustancias_irritantes' => $q->sustancias_irritantes ?? null,
+                    'salud'              => $q->salud ?? null,
+                    'inflamabilidad'     => $q->inflamabilidad ?? null,
+                    'reactividad'        => $q->reactividad ?? null,
                 ];
             }
 

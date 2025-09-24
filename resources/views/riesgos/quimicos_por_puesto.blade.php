@@ -73,9 +73,6 @@
                 {{ $r['num_empleados'] ?? '—' }}
               </td>
               <td class="p-3 border-l align-top">
-                <div class="text-[12px] text-gray-700">{{ $r['descripcion_general'] }}</div>
-              </td>
-              <td class="p-3 border-l align-top">
                 <div class="font-medium">{{ $r['quimico']->nombre_comercial }}</div>
                 @if($r['quimico']->uso)
                   <div class="text-[11px] text-gray-500">Uso: {{ $r['quimico']->uso }}</div>
@@ -84,15 +81,16 @@
               <td class="p-3 border-l align-top">
                 {{ $r['exposicion'] ?? '—' }}
               </td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
-              <td class="p-3 text-center border-l align-top text-gray-400">—</td>
+              <td class="p-3 text-center border-l align-top">{{ $r['frecuencia'] ?? '—' }}</td>
+              <td class="p-3 text-center border-l align-top">{{ $r['duracion_exposicion'] ?? '—' }}</td>
+              <td class="p-3 text-center border-l align-top">{!! ($r['ninguno'] ?? 0) ? '✔️' : '' !!}</td>
+              <td class="p-3 text-center border-l align-top">{!! ($r['particulas_polvo'] ?? 0) ? '✔️' : '' !!}</td>
+              <td class="p-3 text-center border-l align-top">{!! ($r['sustancias_corrosivas'] ?? 0) ? '✔️' : '' !!}</td>
+              <td class="p-3 text-center border-l align-top">{!! ($r['sustancias_toxicas'] ?? 0) ? '✔️' : '' !!}</td>
+              <td class="p-3 text-center border-l align-top">{!! ($r['sustancias_irritantes'] ?? 0) ? '✔️' : '' !!}</td>
+              <td class="p-3 text-center border-l align-top">{{ $r['salud'] ?? '—' }}</td>
+              <td class="p-3 text-center border-l align-top">{{ $r['inflamabilidad'] ?? '—' }}</td>
+              <td class="p-3 text-center border-l align-top">{{ $r['reactividad'] ?? '—' }}</td>
             </tr>
           @empty
             <tr>

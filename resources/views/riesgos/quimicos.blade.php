@@ -86,45 +86,45 @@
                                     <!-- Text Inputs -->
                                     <div>
                                         <label for="nombre_comercial" class="block mb-2 text-sm font-medium text-gray-900">Nombre Comercial</label>
-                                        <input type="text" name="nombre_comercial" id="nombre_comercial" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="nombre_comercial" id="nombre_comercial" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="uso" class="block mb-2 text-sm font-medium text-gray-900">Uso</label>
-                                        <input type="text" name="uso" id="uso" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="uso" id="uso" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="proveedor" class="block mb-2 text-sm font-medium text-gray-900">Proveedor</label>
-                                        <input type="text" name="proveedor" id="proveedor" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="proveedor" id="proveedor" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="concentracion" class="block mb-2 text-sm font-medium text-gray-900">Concentración</label>
-                                        <input type="text" name="concentracion" id="concentracion" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="concentracion" id="concentracion" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="composicion_quimica" class="block mb-2 text-sm font-medium text-gray-900">Composición Química</label>
-                                        <input type="text" name="composicion_quimica" id="composicion_quimica" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="composicion_quimica" id="composicion_quimica" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="estado_fisico" class="block mb-2 text-sm font-medium text-gray-900">Estado Físico</label>
-                                        <input type="text" name="estado_fisico" id="estado_fisico" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="estado_fisico" id="estado_fisico" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="msds" class="block mb-2 text-sm font-medium text-gray-900">MSDS</label>
-                                        <input type="text" name="msds" id="msds" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="msds" id="msds" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div class="col-span-2">
                                     <p class="mb-2 font-medium text-gray-900">Grado de Peligrosidad de los Quí­micos</p>
                                     <div>
                                         <label for="salud" class="block mb-2 text-sm font-medium text-gray-900">Salud</label>
-                                        <input type="text" name="salud" id="salud" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="salud" id="salud" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="inflamabilidad" class="block mb-2 text-sm font-medium text-gray-900">Inflamabilidad</label>
-                                        <input type="text" name="inflamabilidad" id="inflamabilidad" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="inflamabilidad" id="inflamabilidad" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                     <div>
                                         <label for="reactividad" class="block mb-2 text-sm font-medium text-gray-900">Reactividad</label>
-                                        <input type="text" name="reactividad" id="reactividad" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full" required>
+                                        <input type="text" name="reactividad" id="reactividad" class="bg-gray-50 border border-gray-300 rounded-lg p-2.5 w-full">
                                     </div>
                                 </div>
 

@@ -24,13 +24,13 @@
 
 <div class="sheet">
 
-<a class="btn" href="{{ route('mediciones.export.iluminacion', request()->only('id_localizacion','year')) }}">
+<a class="btn" href="{{ route('mediciones.export.iluminacion', ['id_localizacion' => request('id_localizacion'), 'year' => $year]) }}">
   RESUMEN DE RESULTADOS DE MEDICIÓN DE ILUMINACIÓN
 </a>
 
 {{-- En tu vista de Iluminación, donde pones los demás botones --}}
 <a class="btn"
-   href="{{ route('mediciones.export.iluminacion.plantilla') }}">
+   href="{{ route('mediciones.export.iluminacion.plantilla', ['id_localizacion' => request('id_localizacion'), 'year' => $year]) }}">
   HOJA DE CAMPO DE MEDICIÓN DE ILUMINACIÓN
 </a>
 

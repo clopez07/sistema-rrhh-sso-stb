@@ -1273,7 +1273,7 @@ public function charts(\Illuminate\Http\Request $request)
 
 public function exportIluminacion(Request $request)
 {
-    $year  = (int) now()->year;
+    $year  = $request->integer('year') ?: (int) now()->year;
     $locId = $request->integer('id_localizacion');
     $fname = 'reporte_iluminacion' . ($locId ? "_loc{$locId}" : '') . ($year ? "_{$year}" : '') . '.xlsx';
 
@@ -1315,7 +1315,7 @@ public function exportIluminacion(Request $request)
 
     public function exportRuido(Request $request)
 {
-    $year  = (int) now()->year;
+    $year = $request->integer('year') ?: (int) now()->year;
     $locId = $request->integer('id_localizacion');
     $fname = 'reporte_ruido' . ($locId ? "_loc{$locId}" : '') . ($year ? "_{$year}" : '') . '.xlsx';
 
@@ -1356,7 +1356,7 @@ public function exportIluminacion(Request $request)
 
 public function exportIluminacionDesdePlantilla(Request $request)
 {
-    $year = (int) now()->year;
+    $year = $request->integer('year') ?: (int) now()->year;
 
     $tplPath = storage_path('app/public/medicion_iluminacion.xlsx');
     if (!is_file($tplPath)) {
@@ -1510,7 +1510,7 @@ public function exportIluminacionDesdePlantilla(Request $request)
 
 public function exportRuidoDesdePlantilla(Request $request)
 {
-    $year = (int) now()->year;
+    $year = $request->integer('year') ?: (int) now()->year;
 
     // 1) Cargar plantilla
     $tplPath = storage_path('app/public/medicion_ruido.xlsx');
@@ -1832,7 +1832,5 @@ public function prefill(Request $request)
         'lux_rows' => $luxRows,
     ]);
 }
-
-
 
 }
