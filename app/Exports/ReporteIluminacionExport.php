@@ -185,14 +185,27 @@ class ReporteIluminacionExport
         $n = 1;
         foreach ($rowsData as $data) {
             $row++;
+
+            // Límite (EM) por localización
             $em = $emByLoc[$data->id_localizacion] ?? null;
+
+            // Acciones: si promedio < EM y no hay acción, proponer "Instalar mas lamparas"
+            $accion = $data->acciones_correctivas;
+            $prom   = is_numeric($data->promedio) ? (float)$data->promedio : null;
+            $lim    = is_numeric($em) ? (float)$em : null;
+
+            if ($prom !== null && $lim !== null && $prom < $lim) {
+                if ($accion === null || trim($accion) === '') {
+                    $accion = 'Instalar mas lamparas';
+                }
+            }
 
             $sheet->setCellValue("A{$row}", $n++);
             $sheet->setCellValue("B{$row}", $data->punto_medicion ?: '');
             $sheet->setCellValue("C{$row}", $data->puesto ?: '');
             $sheet->setCellValue("D{$row}", $this->fmt($data->promedio));
             $sheet->setCellValue("E{$row}", $this->fmt($em, 0));   // EM como límite
-            $sheet->setCellValue("F{$row}", $data->acciones_correctivas ?: '');
+            $sheet->setCellValue("F{$row}", $accion ?: '');
 
             $sheet->getStyle("A{$row}")->applyFromArray($centerBold);
             $sheet->getStyle("B{$row}:C{$row}")->applyFromArray($left);

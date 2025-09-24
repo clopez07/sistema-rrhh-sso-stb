@@ -1187,7 +1187,7 @@ public function charts(\Illuminate\Http\Request $request)
 
 public function exportIluminacion(Request $request)
 {
-    $year  = $request->integer('year');
+    $year  = (int) now()->year;
     $locId = $request->integer('id_localizacion');
     $fname = 'reporte_iluminacion' . ($locId ? "_loc{$locId}" : '') . ($year ? "_{$year}" : '') . '.xlsx';
 
@@ -1210,7 +1210,6 @@ public function exportIluminacion(Request $request)
     $spreadsheet->disconnectWorksheets();
     unset($spreadsheet);
 
-    // 🔒 Evitar corrupción por compresión/buffers
     if (function_exists('ini_set')) { @ini_set('zlib.output_compression', 'Off'); }
     while (ob_get_level() > 0) { @ob_end_clean(); }
 
@@ -1230,7 +1229,7 @@ public function exportIluminacion(Request $request)
 
     public function exportRuido(Request $request)
 {
-    $year  = $request->integer('year');
+    $year  = (int) now()->year;
     $locId = $request->integer('id_localizacion');
     $fname = 'reporte_ruido' . ($locId ? "_loc{$locId}" : '') . ($year ? "_{$year}" : '') . '.xlsx';
 

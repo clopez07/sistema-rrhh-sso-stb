@@ -474,8 +474,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-
-
 <!-- MODAL: Notificación de Riesgos por Empleado -->
 <div id="modal-notificacion-empleado" tabindex="-1" aria-hidden="true"
      class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
@@ -487,12 +485,15 @@ document.addEventListener('DOMContentLoaded', () => {
           <svg class="w-3 h-3" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="2"/></svg>
         </button>
       </div>
+
       <form id="form-export-notif-empleado" action="{{ route('notificacion.excel.empleado.export') }}" method="POST" class="p-4 md:p-5">
         @csrf
-        <label for="empleado-select" class="block mb-2 text-sm font-medium text-gray-900">Selecciona el Empleado</label>
-        <select id="empleado-select" name="id_empleado" class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-1 focus:ring-blue-500" required>
-          <option value="">Cargando empleados...</option>
+        <label for="ptm-select-emp" class="block mb-2 text-sm font-medium text-gray-900">Selecciona el Puesto de Trabajo</label>
+        <select id="ptm-select-emp" name="ptm_id"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-1 focus:ring-blue-500" required>
+          <option value="">Cargando puestos...</option>
         </select>
+
         <div class="mt-5 flex justify-end gap-2">
           <button type="button" data-modal-hide="modal-notificacion-empleado" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700">Cancelar</button>
           <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Descargar Excel</button>
@@ -500,39 +501,37 @@ document.addEventListener('DOMContentLoaded', () => {
       </form>
     </div>
   </div>
-  </div>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const modalEmpId = 'modal-notificacion-empleado';
-  const empSelect  = document.getElementById('empleado-select');
+  const ptmSelect  = document.getElementById('ptm-select-emp');
   const empForm    = document.getElementById('form-export-notif-empleado');
-  let loadedEmp    = false;
+  let loadedPtm    = false;
 
-  function loadEmpleados() {
-    if (loadedEmp) return;
-    fetch('{{ route('notificacion.excel.empleados') }}', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+  function loadPuestosForEmp() {
+    if (loadedPtm) return;
+    fetch('{{ route('notificacion.excel.puestos') }}', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
       .then(r => r.json())
       .then(rows => {
-        empSelect.innerHTML = '<option value="">Seleccione...</option>';
+        ptmSelect.innerHTML = '<option value="">Seleccione...</option>';
         rows.forEach(r => {
           const opt = document.createElement('option');
-          opt.value = r.id_empleado;
-          const puesto = r.puesto ? ` — ${r.puesto}` : '';
-          const depto  = r.departamento ? ` (${r.departamento})` : '';
-          opt.textContent = `${r.nombre_completo}${puesto}${depto}`;
-          empSelect.appendChild(opt);
+          opt.value = r.id_puesto_trabajo_matriz;
+          opt.textContent = r.puesto_trabajo_matriz;
+          ptmSelect.appendChild(opt);
         });
-        loadedEmp = true;
+        loadedPtm = true;
       })
-      .catch(() => { empSelect.innerHTML = '<option value="">Error cargando empleados</option>'; });
+      .catch(() => { ptmSelect.innerHTML = '<option value="">Error cargando puestos</option>'; });
   }
 
   document.querySelectorAll('[data-modal-target="'+modalEmpId+'"]').forEach(trigger => {
-    trigger.addEventListener('click', loadEmpleados);
+    trigger.addEventListener('click', loadPuestosForEmp);
   });
 
-  // Reutiliza el iframe oculto global
+  // Reutiliza iframe oculto global (si ya existe)
   let dlFrame = document.getElementById('download-frame-riesgos');
   if (!dlFrame) {
     dlFrame = document.createElement('iframe');
@@ -542,18 +541,24 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(dlFrame);
   }
 
-  empForm.addEventListener('submit', (e) => {
+  empForm.addEventListener('submit', function(e) {
     empForm.setAttribute('target', 'download-frame-riesgos');
-    const closeBtn = document.querySelector(`[data-modal-hide="${modalEmpId}"]`);
-    if (closeBtn) closeBtn.click();
+    // Espera un poco antes de cerrar el modal para permitir que el submit se procese
     setTimeout(() => {
-      document.querySelectorAll('div[modal-backdrop], .modal-backdrop').forEach(el => el.remove());
-      document.documentElement.classList.remove('overflow-hidden');
-      document.body.classList.remove('overflow-hidden');
-    }, 100);
+      const closeBtn = document.querySelector(`[data-modal-hide="${modalEmpId}"]`);
+      if (closeBtn) closeBtn.click();
+      setTimeout(() => {
+        document.querySelectorAll('div[modal-backdrop], .modal-backdrop').forEach(el => el.remove());
+        document.documentElement.classList.remove('overflow-hidden');
+        document.body.classList.remove('overflow-hidden');
+        // Limpia el select después de la descarga
+        ptmSelect.value = '';
+      }, 100);
+    }, 400); // 400ms para asegurar que el submit se procese
   });
 });
 </script>
+
 
 <!-- MODAL: Notificación de Riesgos por Puesto -->
 <div id="modal-notificacion-puesto" tabindex="-1" aria-hidden="true"

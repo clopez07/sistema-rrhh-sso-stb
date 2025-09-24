@@ -338,125 +338,165 @@ $empleados = DB::table('empleado as e')
         return response()->json($out);
     }
 
-    // Exporta la notificación para un solo empleado usando la plantilla correspondiente
-    public function exportEmpleado(Request $request)
-    {
-        $request->validate([
-            'id_empleado' => 'required|integer|exists:empleado,id_empleado',
-        ]);
+public function exportEmpleado(Request $request)
+{
+    \Log::info('[Notif Emp] IN', ['all' => $request->all(), 'method' => $request->method()]);
 
-        $id = (int)$request->input('id_empleado');
-        $emp = DB::table('empleado as e')
-            ->leftJoin('puesto_trabajo as p', 'p.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
-            ->where('e.id_empleado', $id)
-            ->first([
-                'e.nombre_completo',
-                'p.puesto_trabajo',
-                'p.departamento',
-            ]);
-        if (!$emp) {
-            return back()->with('error', 'Empleado no encontrado');
-        }
+    $request->validate([
+        'ptm_id' => 'required|integer|exists:puesto_trabajo_matriz,id_puesto_trabajo_matriz',
+    ]);
 
-        // Riesgos del empleado según su puesto (en matriz) y medidas consolidadas
-        $sub = DB::raw("(
+    $ptmId = (int)$request->input('ptm_id');
+
+    // === PTM
+    $ptm = DB::table('puesto_trabajo_matriz')
+        ->where('id_puesto_trabajo_matriz', $ptmId)
+        ->first(['puesto_trabajo_matriz']);
+    if (!$ptm) {
+        \Log::warning('[Notif Emp] PTM no encontrado', ['ptm_id' => $ptmId]);
+        return back()->with('error', 'Puesto no encontrado');
+    }
+    $targetName = trim((string)$ptm->puesto_trabajo_matriz);
+
+    // === Empleados activos cuyo PUESTO EFECTIVO coincide con el PTM (por NOMBRE)
+    $empleadosPTM = DB::table('empleado as e')
+        ->leftJoin('puesto_trabajo_matriz as pm', 'pm.id_puesto_trabajo_matriz', '=', 'e.id_puesto_trabajo_matriz')
+        ->leftJoin('puesto_trabajo as ps', 'ps.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
+        ->where('e.estado', 1)
+        ->whereRaw(
+            'TRIM(UPPER(CASE 
+                WHEN e.id_puesto_trabajo_matriz IS NOT NULL AND e.id_puesto_trabajo_matriz <> 0
+                    THEN pm.puesto_trabajo_matriz
+                ELSE ps.puesto_trabajo
+            END)) = TRIM(UPPER(?))',
+            [$targetName]
+        )
+        ->orderBy('e.nombre_completo')
+        ->get(['e.nombre_completo']);
+
+    $nombreParaPlantilla = $empleadosPTM->count() === 1 ? (string)($empleadosPTM->first()->nombre_completo ?? '') : '';
+    \Log::info('[Notif Emp] Empleados match', [
+        'count' => $empleadosPTM->count(),
+        'nombreElegido' => $nombreParaPlantilla,
+    ]);
+
+    // Departamento (intento inferir desde puesto del sistema si hay alguien en ese PTM)
+    $departamento = DB::table('empleado as e')
+        ->leftJoin('puesto_trabajo as ps', 'ps.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
+        ->where('e.estado', 1)
+        ->whereRaw(
+            'TRIM(UPPER(CASE 
+                WHEN e.id_puesto_trabajo_matriz IS NOT NULL AND e.id_puesto_trabajo_matriz <> 0
+                    THEN (SELECT ptm2.puesto_trabajo_matriz FROM puesto_trabajo_matriz ptm2 WHERE ptm2.id_puesto_trabajo_matriz = e.id_puesto_trabajo_matriz)
+                ELSE ps.puesto_trabajo
+            END)) = TRIM(UPPER(?))',
+            [$targetName]
+        )
+        ->value('ps.departamento') ?? '';
+    \Log::info('[Notif Emp] Dep inferido', ['departamento' => $departamento]);
+
+    // === MEDIDAS por riesgo (filtradas por PTM) - subconsulta RAW (súper compatible)
+    $subMedidas = DB::raw("
+        (
             SELECT
                 mrp.id_riesgo,
-                GROUP_CONCAT(DISTINCT epp.equipo        ORDER BY epp.equipo        SEPARATOR ', ') AS epps,
-                GROUP_CONCAT(DISTINCT c.capacitacion    ORDER BY c.capacitacion    SEPARATOR ', ') AS caps,
-                GROUP_CONCAT(DISTINCT s.senalizacion    ORDER BY s.senalizacion    SEPARATOR ', ') AS senal,
-                GROUP_CONCAT(DISTINCT o.otras_medidas   ORDER BY o.otras_medidas   SEPARATOR ', ') AS otras
+                GROUP_CONCAT(DISTINCT epp.equipo      ORDER BY epp.equipo      SEPARATOR ', ') AS epps,
+                GROUP_CONCAT(DISTINCT c.capacitacion  ORDER BY c.capacitacion  SEPARATOR ', ') AS caps,
+                GROUP_CONCAT(DISTINCT s.senalizacion  ORDER BY s.senalizacion  SEPARATOR ', ') AS senal,
+                GROUP_CONCAT(DISTINCT o.otras_medidas ORDER BY o.otras_medidas SEPARATOR ', ') AS otras
             FROM medidas_riesgo_puesto mrp
-            LEFT JOIN epp          ON epp.id_epp            = mrp.id_epp
-            LEFT JOIN capacitacion c ON c.id_capacitacion   = mrp.id_capacitacion
-            LEFT JOIN senalizacion s ON s.id_senalizacion   = mrp.id_senalizacion
-            LEFT JOIN otras_medidas o ON o.id_otras_medidas = mrp.id_otras_medidas
+            LEFT JOIN epp            ON epp.id_epp            = mrp.id_epp
+            LEFT JOIN capacitacion c ON c.id_capacitacion     = mrp.id_capacitacion
+            LEFT JOIN senalizacion s ON s.id_senalizacion     = mrp.id_senalizacion
+            LEFT JOIN otras_medidas o ON o.id_otras_medidas   = mrp.id_otras_medidas
+            WHERE mrp.id_puesto_trabajo_matriz = {$ptmId}
             GROUP BY mrp.id_riesgo
-        ) as m");
+        ) as m
+    ");
 
-        $riesgos = DB::table('empleado as e')
-            ->join('comparacion_puestos as cp', 'cp.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
-            ->join('puesto_trabajo_matriz as ptm', 'ptm.id_puesto_trabajo_matriz', '=', 'cp.id_puesto_trabajo_matriz')
-            ->join('riesgo_valor as rv', 'rv.id_puesto_trabajo_matriz', '=', 'ptm.id_puesto_trabajo_matriz')
-            ->join('riesgo as r', 'r.id_riesgo', '=', 'rv.id_riesgo')
-            ->join('tipo_riesgo as tr', 'tr.id_tipo_riesgo', '=', 'r.id_tipo_riesgo')
-            ->leftJoin($sub, 'm.id_riesgo', '=', 'r.id_riesgo')
-            ->where('e.id_empleado', $id)
-            ->whereIn(DB::raw('LOWER(rv.valor)'), ['si','sí','si.','sí.'])
-            ->orderBy('tr.tipo_riesgo')
-            ->orderBy('r.nombre_riesgo')
-            ->get([
-                'r.nombre_riesgo',
-                'r.efecto_salud',
-                DB::raw("COALESCE(NULLIF(TRIM(CONCAT_WS(' | ', NULLIF(m.epps,''), NULLIF(m.caps,''), NULLIF(m.senal,''), NULLIF(m.otras,''))), ''), 'No Requiere') as medidas_requeridas"),
-            ]);
-        // Deduplicar por riesgo para evitar repetidos por múltiples filas en riesgo_valor
-        if (method_exists($riesgos, 'unique')) {
-            $riesgos = $riesgos->unique(function($x){ return $x->nombre_riesgo.'|'.($x->efecto_salud ?? ''); })->values();
-        }
+    // === RIESGOS 'SI' del PTM
+    $riesgos = DB::table('riesgo_valor as rv')
+        ->join('riesgo as r', 'r.id_riesgo', '=', 'rv.id_riesgo')
+        ->join('tipo_riesgo as tr', 'tr.id_tipo_riesgo', '=', 'r.id_tipo_riesgo')
+        ->leftJoin($subMedidas, 'm.id_riesgo', '=', 'r.id_riesgo')
+        ->where('rv.id_puesto_trabajo_matriz', $ptmId)
+        ->whereIn(DB::raw('LOWER(TRIM(rv.valor))'), ['si','sí','si.','sí.'])
+        ->orderBy('tr.tipo_riesgo')
+        ->orderBy('r.nombre_riesgo')
+        ->get([
+            'r.nombre_riesgo',
+            'r.efecto_salud',
+            DB::raw("COALESCE(NULLIF(TRIM(CONCAT_WS(' | ', NULLIF(m.epps,''), NULLIF(m.caps,''), NULLIF(m.senal,''), NULLIF(m.otras,''))), ''), 'No Requiere') as medidas_requeridas"),
+        ]);
 
-        $templateRelPath = 'formato_notificacion_riesgos_empleado.xlsx';
-        $templatePath = Storage::disk('public')->path($templateRelPath);
-        if (!file_exists($templatePath)) {
-            return back()->with('error', 'No se encontró la plantilla: '.$templateRelPath);
-        }
+    \Log::info('[Notif Emp] Riesgos encontrados', ['count' => $riesgos->count()]);
 
-        try {
-            $spreadsheet = IOFactory::load($templatePath);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo abrir la plantilla: '.$e->getMessage());
-        }
-
-        $sheet = $spreadsheet->getActiveSheet();
-        // Celdas solicitadas: Nombre A31, Puesto B7, Departamento B8
-        $sheet->setCellValue('A31', (string)($emp->nombre_completo ?? ''));
-        $sheet->setCellValue('B7',  (string)($emp->puesto_trabajo ?? ''));
-        $sheet->setCellValue('B8',  (string)($emp->departamento ?? ''));
-
-        // Limpiar solo el área de la tabla para no eliminar pie de página
-        // Riesgo: A10..A27; Medidas: C10..C27; Efecto salud: B20..B27
-        $maxRows = 27;
-        for ($r = 10; $r <= $maxRows; $r++) {
-            $sheet->setCellValue('A'.$r, '');
-            $sheet->setCellValue('C'.$r, '');
-        }
-        for ($r = 20; $r <= $maxRows; $r++) {
-            $sheet->setCellValue('B'.$r, '');
-        }
-
-        // Insertar resultados
-        $rowRisk   = 10; // A10
-        $rowMed    = 10; // C10
-        $rowEffect = 20; // B20
-        foreach ($riesgos as $r) {
-            if ($rowRisk > $maxRows || $rowMed > $maxRows || $rowEffect > $maxRows) { break; }
-            $sheet->setCellValue('A'.$rowRisk,   (string)($r->nombre_riesgo ?? ''));
-            $sheet->setCellValue('C'.$rowMed,    (string)($r->medidas_requeridas ?? ''));
-            $sheet->setCellValue('B'.$rowEffect, (string)($r->efecto_salud ?? ''));
-            $rowRisk++;
-            $rowMed++;
-            $rowEffect++;
-        }
-
-        $safeName = preg_replace('/[^\w\-]+/u', '_', (string)($emp->nombre_completo ?? 'empleado'));
-        $filename = 'Notificacion_Riesgos_Empleado_'.$safeName.'_'.date('Ymd_His').'.xlsx';
-
-        try {
-            $tmp = storage_path('app/'.uniqid('notif_emp_', true).'.xlsx');
-            $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
-            $writer->save($tmp);
-            while (ob_get_level() > 0) { @ob_end_clean(); }
-            $spreadsheet->disconnectWorksheets();
-            unset($spreadsheet);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo generar el archivo: '.$e->getMessage());
-        }
-
-        return response()->download($tmp, $filename, [
-            'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
-            'Pragma'                    => 'no-cache',
-            'Content-Transfer-Encoding' => 'binary',
-        ])->deleteFileAfterSend(true);
+    if (method_exists($riesgos, 'unique')) {
+        $riesgos = $riesgos->unique(fn($x) => $x->nombre_riesgo.'|'.($x->efecto_salud ?? ''))->values();
     }
+
+    // === Plantilla
+    $templateRelPath = 'formato_notificacion_riesgos_empleado.xlsx';
+    $templatePath = Storage::disk('public')->path($templateRelPath);
+    if (!file_exists($templatePath)) {
+        \Log::error('[Notif Emp] Plantilla NO existe', ['path' => $templatePath]);
+        return back()->with('error', 'No se encontró la plantilla: '.$templateRelPath);
+    }
+
+    try {
+        $spreadsheet = IOFactory::load($templatePath);
+    } catch (\Throwable $e) {
+        \Log::error('[Notif Emp] Error abriendo plantilla', ['e' => $e->getMessage()]);
+        return back()->with('error', 'No se pudo abrir la plantilla: '.$e->getMessage());
+    }
+
+    $sheet = $spreadsheet->getActiveSheet();
+    // Escribir celdas
+    $sheet->setCellValue('A31', $nombreParaPlantilla);
+    $sheet->setCellValue('B7',  (string)$ptm->puesto_trabajo_matriz);
+    $sheet->setCellValue('B8',  (string)$departamento);
+
+    // Limpiar áreas (tabla)
+    $maxRows = 27;
+    for ($r = 10; $r <= $maxRows; $r++) {
+        $sheet->setCellValue('A'.$r, '');
+        $sheet->setCellValue('C'.$r, '');
+    }
+    for ($r = 20; $r <= $maxRows; $r++) {
+        $sheet->setCellValue('B'.$r, '');
+    }
+
+    // Insertar riesgos
+    $rowRisk = 10; $rowMed = 10; $rowEffect = 20;
+    foreach ($riesgos as $r) {
+        if ($rowRisk > $maxRows || $rowMed > $maxRows || $rowEffect > $maxRows) break;
+        $sheet->setCellValue('A'.$rowRisk,   (string)($r->nombre_riesgo ?? ''));
+        $sheet->setCellValue('C'.$rowMed,    (string)($r->medidas_requeridas ?? ''));
+        $sheet->setCellValue('B'.$rowEffect, (string)($r->efecto_salud ?? ''));
+        $rowRisk++; $rowMed++; $rowEffect++;
+    }
+
+    // Enviar
+    $safeName = preg_replace('/[^\w\-]+/u', '_', (string)$ptm->puesto_trabajo_matriz);
+    $filename = 'Notificacion_Riesgos_Empleado_'.$safeName.'_'.date('Ymd_His').'.xlsx';
+
+    // Limpia buffers para no corromper descarga
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+
+    \Log::info('[Notif Emp] STREAM OUT', ['filename' => $filename]);
+
+    return response()->streamDownload(function() use ($spreadsheet) {
+        $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
+        $writer->save('php://output');
+        $spreadsheet->disconnectWorksheets();
+    }, $filename, [
+        'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
+        'Pragma'                    => 'no-cache',
+        'Content-Transfer-Encoding' => 'binary',
+    ]);
+}
+
+
+
 }
