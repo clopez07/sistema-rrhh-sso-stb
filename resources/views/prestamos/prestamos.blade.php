@@ -414,9 +414,9 @@
     </div>
 
     <div id="extras_box" class="hidden">
-      <div class="overflow-x-auto border border-gray-200 rounded-lg">
-        <table class="min-w-full text-sm">
-          <thead class="bg-gray-50">
+    <div class="relative overflow-x-auto overflow-y-auto max-h-[70vh] shadow-md sm:rounded-lg" style="margin-top: 20px;">
+        <table class="w-full text-sm text-left text-gray-500 border-separate border-spacing-0">
+            <thead class="sticky top-0 z-20 bg-gray-50">
             <tr>
               <th class="px-3 py-2 text-left">Tipo</th>
               <th class="px-3 py-2 text-left">Periodo / Nota</th>

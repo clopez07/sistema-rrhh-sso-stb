@@ -73,9 +73,9 @@
         <div class="mt-3 p-3 rounded bg-red-100 text-red-800 text-sm">{{ session('error') }}</div>
     @endif
 
-    <div class="relative overflow-x-auto shadow-md sm:rounded-lg" style="margin-top: 20px;">
-        <table id="tablaCUOTA" class="w-full text-sm text-left rtl:text-right text-gray-500">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+    <div class="relative overflow-x-auto overflow-y-auto max-h-[100vh] shadow-md sm:rounded-lg" style="margin-top: 20px;">
+        <table class="w-full text-sm text-left text-gray-500 border-separate border-spacing-0">
+            <thead class="sticky top-0 z-20 bg-gray-50">
                 <tr>
                     <th scope="col" class="px-6 py-3">
                         No. Cuota
@@ -230,6 +230,41 @@
                                         </div>
                                         <button type="submit" class="text-white inline-flex items-center bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center">Guardar</button>
                                     </form>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button"
+                            data-modal-target="delete-cuota-{{ $cuota->id_historial_cuotas }}"
+                            data-modal-toggle="delete-cuota-{{ $cuota->id_historial_cuotas }}"
+                            class="text-red-600 hover:underline ml-3">Eliminar</button>
+
+                        <div id="delete-cuota-{{ $cuota->id_historial_cuotas }}" tabindex="-1" aria-hidden="true" class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+                            <div class="relative p-4 w-full max-w-md max-h-full">
+                                <div class="relative bg-white rounded-lg shadow-sm">
+                                    <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t border-gray-200">
+                                        <h3 class="text-lg font-semibold text-gray-900">Eliminar cuota</h3>
+                                        <button type="button" class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center" data-modal-toggle="delete-cuota-{{ $cuota->id_historial_cuotas }}">
+                                            <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/></svg>
+                                            <span class="sr-only">Close modal</span>
+                                        </button>
+                                    </div>
+                                    <div class="p-4 md:p-5 text-center">
+                                        <svg class="mx-auto mb-4 text-gray-400 w-12 h-12" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 11V6m0 8h.01M19 10a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                                        </svg>
+                                        <h3 class="mb-5 text-lg font-normal text-gray-500">¿Está seguro de eliminar esta cuota?</h3>
+                                        <form action="{{ route('cuotas.destroy', $cuota->id_historial_cuotas) }}" method="POST">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center">
+                                                Sí, eliminar
+                                            </button>
+                                            <button data-modal-hide="delete-cuota-{{ $cuota->id_historial_cuotas }}" type="button" class="py-2.5 px-5 ms-3 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100">
+                                                No, cancelar
+                                            </button>
+                                        </form>
+                                    </div>
                                 </div>
                             </div>
                         </div>

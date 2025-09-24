@@ -206,10 +206,9 @@
             </div>
 
             <!-- Tabla historial -->
-            <div class="relative border rounded-xl">
-            <div class="overflow-x-auto max-h-[60vh] md:max-h-[70vh] overflow-y-auto" id="modal-table-wrap">
-                <table class="w-full text-sm text-left text-gray-600">
-                <thead class="text-xs uppercase bg-gray-50">
+        <div class="relative overflow-x-auto overflow-y-auto max-h-[70vh] shadow-md sm:rounded-lg" style="margin-top: 20px;" id="modal-table-wrap">
+            <table class="w-full text-sm text-left text-gray-500 border-separate border-spacing-0">
+                <thead class="sticky top-0 z-20 bg-gray-50">
                 <tr>
                     <th class="px-4 py-2 sticky top-0 bg-gray-50 z-10">Número de cuota</th>
                     <th class="px-4 py-2 sticky top-0 bg-gray-50 z-10">Fecha de pago</th>
@@ -224,7 +223,6 @@
                 </tr>
                 </tbody>
             </table>
-        </div>
         </div>
 
         <!-- Footer -->

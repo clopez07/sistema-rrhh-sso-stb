@@ -20,11 +20,24 @@ public function empleadosprestamo(Request $request)
 {
     $search = trim((string) $request->input('search', ''));
 
+    // Subquery: sumas reales de lo pagado (solo cuotas pagadas)
+    $pagadasSub = DB::table('historial_cuotas as hc')
+        ->select(
+            'hc.id_prestamo',
+            DB::raw('COALESCE(SUM(hc.abono_capital), 0)  AS cap_pagado'),
+            DB::raw('COALESCE(SUM(hc.abono_intereses), 0) AS int_pagado')
+        )
+        ->where('hc.pagado', 1)
+        ->groupBy('hc.id_prestamo');
+
     $empleadosprestamo = DB::table('empleado_prestamo as ep')
         ->join('empleado as emp', 'ep.id_empleado', '=', 'emp.id_empleado')
         ->join('prestamo as p', 'ep.id_prestamo', '=', 'p.id_prestamo')
+        ->leftJoinSub($pagadasSub, 'pag', function ($join) {
+            $join->on('pag.id_prestamo', '=', 'p.id_prestamo');
+        })
         ->select(
-            'p.id_prestamo',  
+            'p.id_prestamo',
             'emp.codigo_empleado',
             'emp.nombre_completo',
             'p.num_prestamo',
@@ -34,7 +47,7 @@ public function empleadosprestamo(Request $request)
             // Total a pagar (capital + intereses)
             DB::raw('(p.monto + p.total_intereses) as total_pagado'),
 
-            // ⬇️ Fecha de inicio: primera cuota programada (fallback a fecha de depósito original)
+            // Fecha inicio: primera cuota programada (fallback a fecha depósito)
             DB::raw("COALESCE((
                 SELECT MIN(hc.fecha_programada)
                 FROM historial_cuotas hc
@@ -43,65 +56,20 @@ public function empleadosprestamo(Request $request)
 
             // Fecha final: última cuota programada
             DB::raw("(
-                SELECT MAX(hc.fecha_programada) 
-                FROM historial_cuotas hc 
+                SELECT MAX(hc.fecha_programada)
+                FROM historial_cuotas hc
                 WHERE hc.id_prestamo = p.id_prestamo
             ) as fecha_final"),
 
             DB::raw("CASE WHEN p.estado_prestamo = 1 THEN 'Activo' ELSE 'Inactivo' END as estado_prestamo"),
 
-            // Totales con el último registro pagado
-            DB::raw("COALESCE((
-                SELECT hc.saldo_pagado
-                FROM historial_cuotas hc
-                WHERE hc.id_prestamo = p.id_prestamo
-                  AND hc.id_historial_cuotas = (
-                      SELECT MAX(hc2.id_historial_cuotas)
-                      FROM historial_cuotas hc2
-                      WHERE hc2.id_prestamo = p.id_prestamo
-                        AND hc2.pagado = 1
-                  )
-                LIMIT 1
-            ), 0) as total_capital_pagado"),
+            // ✅ Totales REALES pagados (solo cuotas pagadas)
+            DB::raw('COALESCE(pag.cap_pagado, 0)  AS total_capital_pagado'),
+            DB::raw('COALESCE(pag.int_pagado, 0)  AS total_intereses_pagados'),
 
-            DB::raw("COALESCE((
-                SELECT hc.interes_pagado
-                FROM historial_cuotas hc
-                WHERE hc.id_prestamo = p.id_prestamo
-                  AND hc.id_historial_cuotas = (
-                      SELECT MAX(hc2.id_historial_cuotas)
-                      FROM historial_cuotas hc2
-                      WHERE hc2.id_prestamo = p.id_prestamo
-                        AND hc2.pagado = 1
-                  )
-                LIMIT 1
-            ), 0) as total_intereses_pagados"),
-
-            DB::raw("COALESCE((
-                SELECT hc.saldo_restante
-                FROM historial_cuotas hc
-                WHERE hc.id_prestamo = p.id_prestamo
-                  AND hc.id_historial_cuotas = (
-                      SELECT MAX(hc2.id_historial_cuotas)
-                      FROM historial_cuotas hc2
-                      WHERE hc2.id_prestamo = p.id_prestamo
-                        AND hc2.pagado = 1
-                  )
-                LIMIT 1
-            ), p.monto) as saldo_capital_pendiente"),
-
-            DB::raw("COALESCE((
-                SELECT hc.interes_restante
-                FROM historial_cuotas hc
-                WHERE hc.id_prestamo = p.id_prestamo
-                  AND hc.id_historial_cuotas = (
-                      SELECT MAX(hc2.id_historial_cuotas)
-                      FROM historial_cuotas hc2
-                      WHERE hc2.id_prestamo = p.id_prestamo
-                        AND hc2.pagado = 1
-                  )
-                LIMIT 1
-            ), p.total_intereses) as saldo_intereses_pendiente")
+            // ✅ Saldos REALES pendientes (no negativos)
+            DB::raw('GREATEST(p.monto - COALESCE(pag.cap_pagado, 0), 0)          AS saldo_capital_pendiente'),
+            DB::raw('GREATEST(p.total_intereses - COALESCE(pag.int_pagado, 0), 0) AS saldo_intereses_pendiente')
         )
         ->when($search !== '', function ($query) use ($search) {
             $query->where(function ($q) use ($search) {
@@ -673,6 +641,13 @@ public function empleadosprestamo(Request $request)
 
         return redirect()->back()->with('success', 'Cuota actualizada correctamente');
     }
+            public function destroyCuota($id)
+    {
+        DB::table('historial_cuotas')->where('id_historial_cuotas', $id)->delete();
+        return redirect()->back()->with('success', 'eliminado correctamente');
+    }
+
+
     public function prestamo(Request $request)
     {
         $prestamo = DB::table('prestamo as p')

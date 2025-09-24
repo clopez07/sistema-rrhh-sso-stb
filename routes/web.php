@@ -133,7 +133,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/cuotas/import-ajustes', [Prestamos::class, 'importAjustesCuotas'])->name('cuotas.import');
     Route::put('/cuotas/{id}', [Prestamos::class, 'updateCuota'])->name('cuotas.update');
     Route::get('/cuotas-especiales', [Prestamos::class, 'cuotasEspeciales'])->name('cuotas.especiales');
-
+    Route::delete('/cuotas/{id}', [Prestamos::class, 'destroyCuota'])->name('cuotas.destroy');
 
  // RUTAS PARA ACCEDER A LOS DATOS DE LOS EMPLEADOS
     // Route::post('/empleado', [EmpleadoController::class, 'store'])->name('empleados.store');
@@ -580,14 +580,24 @@ Route::post('/prestamos/renuncia/confirmar', [PrestamoRenunciaController::class,
     Route::get('/prestamos/resumen-mensual', [PrestamosResumenController::class, 'index'])
     ->name('prestamos.resumen.index');
 
-Route::post('/prestamos/resumen-mensual/guardar', [PrestamosResumenController::class, 'store'])
-    ->name('prestamos.resumen.store');
+    Route::post('/prestamos/resumen-mensual/guardar', [PrestamosResumenController::class, 'store'])
+        ->name('prestamos.resumen.store');
 
     Route::post('/prestamos/resumen-mensual/recalcular', [PrestamosResumenController::class, 'recalcular'])
     ->name('prestamos.resumen.recalcular');
 
-Route::post('/prestamos/resumen-mensual/eliminar', [PrestamosResumenController::class, 'destroy'])
-    ->name('prestamos.resumen.eliminar');
+    Route::post('/prestamos/resumen-mensual/eliminar', [PrestamosResumenController::class, 'destroy'])
+        ->name('prestamos.resumen.eliminar');
+        
+    Route::get('/prestamos/ajustes', [AjustesPrestamosController::class, 'form'])
+        ->name('prestamos.ajustes.form');
+
+    Route::post('/prestamos/ajustes/preview', [AjustesPrestamosController::class, 'previewExcel'])
+        ->name('prestamos.ajustes.preview');
+
+    Route::post('/prestamos/ajustes/commit', [AjustesPrestamosController::class, 'commitExcel'])
+        ->name('prestamos.ajustes.commit');
+
 });
 
 

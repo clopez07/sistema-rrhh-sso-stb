@@ -583,26 +583,9 @@ class IdentificacionRiesgosController extends Controller
                     return !$esNA($t); // distinto de "N/A" (NA, N/A, n.a., etc.)
                 });
 
-                // ===== Regla 2: Visual -> riesgo 40 (si existe fila con tipo != "Ninguno")
-                // $visual y $ruido ya vienen normalizados como Collections arriba
-                $hayVisual = $visual->contains(function ($row) use ($esNinguno) {
-                    $tipo = (string)($row['tipo'] ?? '');
-                    if (trim($tipo) === '') return false;
-                    return !$esNinguno($tipo);
-                });
-
-                // ===== Regla 3: Ruido -> riesgo 37 (si existe fila con desc != "Ninguno")
-                $hayRuido = $ruido->contains(function ($row) use ($esNinguno) {
-                    $desc = (string)($row['desc'] ?? '');
-                    if (trim($desc) === '') return false;
-                    return !$esNinguno($desc);
-                });
-
                 // Aplica SI/NO según condición actual (también en ediciones)
                 $rules = [
                     30 => $hayEsfuerzoFisico, // esfuerzo físico
-                    40 => $hayVisual,         // esfuerzo visual
-                    37 => $hayRuido,          // ruido
                 ];
 
                 foreach ($rules as $riskId => $has) {
