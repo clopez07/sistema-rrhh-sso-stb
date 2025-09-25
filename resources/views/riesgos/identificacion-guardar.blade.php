@@ -347,6 +347,22 @@
   <option value="Basura"></option>
   <option value="Canasta con Camaron"></option>
 </datalist>
+<datalist id="fisico-capacitacion-list">
+  @foreach (($capacitacionesCatalogo ?? []) as $cap)
+    @if (!empty($cap->capacitacion))
+      <option value="{{ $cap->capacitacion }}"></option>
+    @endif
+  @endforeach
+  <option value="N/A"></option>
+</datalist>
+<datalist id="fisico-epp-list">
+  @foreach (($equiposEpp ?? []) as $epp)
+    @if (!empty($epp->equipo))
+      <option value="{{ $epp->equipo }}"></option>
+    @endif
+  @endforeach
+  <option value="N/A"></option>
+</datalist>
 
     <!-- ===================== ESFUERZO FISICO ===================== -->
     <div class="bar" style="margin-top:8px;">ESFUERZO FISICO</div>
@@ -383,9 +399,9 @@
           <td><input class="cell-input" name="fisico_cargar_duracion"></td>
           <td><input class="cell-input" name="fisico_cargar_distancia"></td>
           <td><input class="cell-input" name="fisico_cargar_frecuencia"></td>
-          <td><input class="cell-input" name="fisico_cargar_epp"></td>
+          <td><input class="cell-input" name="fisico_cargar_epp" list="fisico-epp-list"></td>
           <td><input class="cell-input" name="fisico_cargar_peso"></td>
-          <td><input class="cell-input" name="fisico_cargar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_cargar_capacitacion" list="fisico-capacitacion-list"></td>
         </tr>
         <tr>
           <td class="label-cell">Halar</td>
@@ -394,9 +410,9 @@
           <td><input class="cell-input" name="fisico_halar_duracion"></td>
           <td><input class="cell-input" name="fisico_halar_distancia"></td>
           <td><input class="cell-input" name="fisico_halar_frecuencia"></td>
-          <td><input class="cell-input" name="fisico_halar_epp"></td>
+          <td><input class="cell-input" name="fisico_halar_epp" list="fisico-epp-list"></td>
           <td><input class="cell-input" name="fisico_halar_peso"></td>
-          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_halar_capacitacion" list="fisico-capacitacion-list"></td>
         </tr>
         <tr>
           <td class="label-cell">Empujar</td>
@@ -405,9 +421,9 @@
           <td><input class="cell-input" name="fisico_empujar_duracion"></td>
           <td><input class="cell-input" name="fisico_empujar_distancia"></td>
           <td><input class="cell-input" name="fisico_empujar_frecuencia"></td>
-          <td><input class="cell-input" name="fisico_empujar_epp"></td>
+          <td><input class="cell-input" name="fisico_empujar_epp" list="fisico-epp-list"></td>
           <td><input class="cell-input" name="fisico_empujar_peso"></td>
-          <td><input class="cell-input" name="fisico_empujar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_empujar_capacitacion" list="fisico-capacitacion-list"></td>
         </tr>
         <tr>
           <td class="label-cell">Sujetar</td>
@@ -416,9 +432,9 @@
           <td><input class="cell-input" name="fisico_sujetar_duracion"></td>
           <td><input class="cell-input" name="fisico_sujetar_distancia"></td>
           <td><input class="cell-input" name="fisico_sujetar_frecuencia"></td>
-          <td><input class="cell-input" name="fisico_sujetar_epp"></td>
+          <td><input class="cell-input" name="fisico_sujetar_epp" list="fisico-epp-list"></td>
           <td><input class="cell-input" name="fisico_sujetar_peso"></td>
-          <td><input class="cell-input" name="fisico_sujetar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_sujetar_capacitacion" list="fisico-capacitacion-list"></td>
         </tr>
       </tbody>
     </table>
@@ -459,7 +475,7 @@
 
       const applyNA = () => {
         if (isNA(desc.value)) {
-          resto.forEach(n => setVal(n, 'NA'));
+          resto.forEach(n => setVal(n, 'N/A'));
         }
         // Si quieres que se limpien cuando deje de ser NA, descomenta:
         // else { resto.forEach(n => { if (q(`[name="${n}"]`)?.value === 'NA') setVal(n, ''); }); }
@@ -551,7 +567,7 @@
         </datalist>
       </td>
       <td><input class="cell-input" name="ruido[0][duracion]"></td>
-      <td><input class="cell-input" name="ruido[0][epp]"></td>
+      <td><input class="cell-input" name="ruido[0][epp]" list="fisico-epp-list"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -596,7 +612,7 @@
         </datalist>
       </td>
       <td><input class="cell-input" name="termico[0][duracion]"></td>
-      <td><input class="cell-input" name="termico[0][epp]"></td>
+      <td><input class="cell-input" name="termico[0][epp]" list="fisico-epp-list"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -743,10 +759,10 @@
         @endforeach
       </datalist>
     </td>
-    <td><input class="cell-input" name="quimicos[0][capacitacion]"></td>
+    <td><input class="cell-input" name="quimicos[0][capacitacion]" list="fisico-capacitacion-list"></td>
     <td><input class="cell-input" name="quimicos[0][duracion]"></td>
     <td><input class="cell-input" name="quimicos[0][frecuencia]"></td>
-        <td><input class="cell-input" name="quimicos[0][epp]"></td>
+        <td><input class="cell-input" name="quimicos[0][epp]" list="fisico-epp-list"></td>
     <td style="text-align:center; vertical-align:middle;">
       <button type="button" class="icon-btn add" aria-label="Añadir químico">+</button>
     </td>
@@ -1418,13 +1434,13 @@
       <td class="label-cell" style="width:25%;">Inspección estado de EPP</td>
       <td style="width:25%;"><input class="cell-input" name="alturas[inspeccion]"></td>
       <td class="label-cell" style="width:25%;">EPP utilizado</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[epp]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[epp]" list="fisico-epp-list"></td>
     </tr>
     <tr>
       <td class="label-cell" style="width:25%;">Señalización</td>
       <td style="width:25%;"><input class="cell-input" name="alturas[senalizacion]"></td>
       <td class="label-cell" style="width:25%;">Capacitación Recibida</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[capacitacion]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[capacitacion]" list="fisico-capacitacion-list"></td>
     </tr>
     <tr>
       <td class="label-cell">Se da Aviso del trabajo en altura</td>
@@ -1674,15 +1690,15 @@
   <tbody>
         <tr>
       <td class="label-cell">Biológico</td>
-      <td><input class="cell-input" name="otros_biologico"></input></td>
+      <td><input class="cell-input" name="otros_biologico" list="sino-na"></input></td>
     </tr>
         <tr>
       <td class="label-cell">Psicosocial</td>
-      <td><input class="cell-input" name="otros_psicosocial"></input></td>
+      <td><input class="cell-input" name="otros_psicosocial" list="sino-na"></input></td>
     </tr>
         <tr>
       <td class="label-cell">Naturales</td>
-      <td><input class="cell-input" name="otros_naturales"></input></td>
+      <td><input class="cell-input" name="otros_naturales" list="sino-na"></input></td>
     </tr>
   </tbody>
 </table>

@@ -70,7 +70,8 @@ class EppRequeridosController extends Controller
             ->where(function ($q) { $q->where('e.estado', 1)->orWhereNull('e.estado'); })
             ->get();
 
-        $legacyIdToMatrix   = [];   // cache: id_puesto_trabajo → id_matriz
+        $legacyIdToMatrix   = [];   // cache: id_puesto_trabajo -> id_matriz
+        $empleadoToMatrix   = [];   // id_empleado -> id_matriz
         $empleadosPorMatrix = [];   // conteo por id_matriz
         foreach ($empleadosRaw as $emp) {
             $matrixId = $emp->id_puesto_trabajo_matriz ? (int)$emp->id_puesto_trabajo_matriz : null;
@@ -87,6 +88,7 @@ class EppRequeridosController extends Controller
 
             if ($matrixId && isset($allPtmById[$matrixId])) {
                 $empleadosPorMatrix[$matrixId] = ($empleadosPorMatrix[$matrixId] ?? 0) + 1;
+                $empleadoToMatrix[(int)$emp->id_empleado] = $matrixId;
             }
         }
 
@@ -140,7 +142,7 @@ class EppRequeridosController extends Controller
                 $hasMatrixColumn ? 'pe.id_puesto_trabajo_matriz' : DB::raw('NULL as id_puesto_trabajo_matriz'),
                 $hasLegacyColumn ? 'pe.id_puesto_trabajo'        : DB::raw('NULL as id_puesto_trabajo'),
                 $hasLegacyColumn ? 'pt.puesto_trabajo as legacy_nombre' : DB::raw('NULL as legacy_nombre'),
-                'e.id_epp', 'e.equipo', 'e.codigo',
+                'e.id_epp', 'e.equipo', 'e.codigo', 'e.permanente',
             ])->get();
 
         $eppsDict = [];
@@ -170,7 +172,7 @@ class EppRequeridosController extends Controller
             $isOblig[$matrixId][$eppId] = true;
 
             if (!isset($eppsDict[$eppId])) {
-                $eppsDict[$eppId] = (object)['id_epp'=>$eppId,'equipo'=>$r->equipo,'codigo'=>$r->codigo];
+                $eppsDict[$eppId] = (object)['id_epp'=>$eppId,'equipo'=>$r->equipo,'codigo'=>$r->codigo,'permanente'=>$r->permanente];
             }
         }
 
@@ -203,61 +205,62 @@ class EppRequeridosController extends Controller
             ]);
         }
 
+
         $eppIds = $epps->pluck('id_epp')->all();
 
-        // 4) ENTREGADOS (AÑO) por puesto_matriz/epp (empleados distintos)
-        $entregadosQuery = DB::table('asignacion_epp as asig')
-            ->join('empleado as emp', 'emp.id_empleado', '=', 'asig.id_empleado');
+        $empleadoIds = array_keys($empleadoToMatrix);
 
-        if ($hasLegacyColumn) {
-            $entregadosQuery->leftJoin('puesto_trabajo as pt', 'emp.id_puesto_trabajo', '=', 'pt.id_puesto_trabajo');
+        $permanentEppIds = [];
+        $nonPermanentEppIds = [];
+        foreach ($epps as $eppRow) {
+            $flag = strtoupper(trim((string) ($eppRow->permanente ?? '')));
+            if ($flag === 'SI') {
+                $permanentEppIds[] = $eppRow->id_epp;
+            } else {
+                $nonPermanentEppIds[] = $eppRow->id_epp;
+            }
         }
 
-        $entregadosQuery
-            ->whereIn('asig.id_epp', $eppIds)
-            ->whereYear('asig.fecha_entrega_epp', $anio)
-            ->where(function ($q) { $q->where('emp.estado', 1)->orWhereNull('emp.estado'); });
-
-        // Select + group by robusto (evita ONLY_FULL_GROUP_BY)
-        $selects = [
-            'emp.id_puesto_trabajo_matriz',
-            'asig.id_epp',
-            DB::raw('COUNT(DISTINCT asig.id_empleado) as cnt'),
-        ];
-        $groups = ['emp.id_puesto_trabajo_matriz', 'asig.id_epp'];
-
-        if ($hasLegacyColumn) {
-            $selects[] = 'emp.id_puesto_trabajo';
-            $selects[] = DB::raw('pt.puesto_trabajo as legacy_nombre');
-            $groups[]  = 'emp.id_puesto_trabajo';
-            $groups[]  = 'pt.puesto_trabajo';
-        }
-
-        $entregadosRows = $entregadosQuery->select($selects)->groupBy($groups)->get();
-
-        // Index entregados por id_matriz
         $idxEnt = [];
-        foreach ($entregadosRows as $r) {
-            $matrixId = null;
+        if (!empty($empleadoIds)) {
+            $mergeRows = function ($rows) use (&$idxEnt, $empleadoToMatrix, $rowById) {
+                foreach ($rows as $r) {
+                    $empId    = (int) $r->id_empleado;
+                    $eppId    = (int) $r->id_epp;
+                    $matrixId = $empleadoToMatrix[$empId] ?? null;
 
-            if ($r->id_puesto_trabajo_matriz) {
-                $matrixId = (int)$r->id_puesto_trabajo_matriz;
-            } elseif (isset($r->id_puesto_trabajo)) {
-                if ($r->id_puesto_trabajo && isset($legacyIdToMatrix[$r->id_puesto_trabajo])) {
-                    $matrixId = $legacyIdToMatrix[$r->id_puesto_trabajo];
-                } elseif (!empty($r->legacy_nombre)) {
-                    $norm = $this->normalize($r->legacy_nombre);
-                    if ($norm !== '' && isset($nameToMatrix[$norm])) {
-                        $matrixId = $nameToMatrix[$norm];
-                        if ($r->id_puesto_trabajo) {
-                            $legacyIdToMatrix[$r->id_puesto_trabajo] = $matrixId;
-                        }
+                    if (!$matrixId || !isset($rowById[$matrixId])) {
+                        continue;
                     }
+
+                    $idxEnt[$matrixId][$eppId] = ($idxEnt[$matrixId][$eppId] ?? 0) + 1;
                 }
+            };
+
+            if (!empty($nonPermanentEppIds)) {
+                $rows = DB::table('asignacion_epp as asig')
+                    ->join('empleado as emp', 'emp.id_empleado', '=', 'asig.id_empleado')
+                    ->whereIn('asig.id_empleado', $empleadoIds)
+                    ->whereIn('asig.id_epp', $nonPermanentEppIds)
+                    ->whereYear('asig.fecha_entrega_epp', $anio)
+                    ->where(function ($q) { $q->where('emp.estado', 1)->orWhereNull('emp.estado'); })
+                    ->distinct()
+                    ->get(['asig.id_empleado', 'asig.id_epp']);
+
+                $mergeRows($rows);
             }
 
-            if (!$matrixId || !isset($rowById[$matrixId])) continue;
-            $idxEnt[$matrixId][(int)$r->id_epp] = (int)$r->cnt;
+            if (!empty($permanentEppIds)) {
+                $rows = DB::table('asignacion_epp as asig')
+                    ->join('empleado as emp', 'emp.id_empleado', '=', 'asig.id_empleado')
+                    ->whereIn('asig.id_empleado', $empleadoIds)
+                    ->whereIn('asig.id_epp', $permanentEppIds)
+                    ->where(function ($q) { $q->where('emp.estado', 1)->orWhereNull('emp.estado'); })
+                    ->distinct()
+                    ->get(['asig.id_empleado', 'asig.id_epp']);
+
+                $mergeRows($rows);
+            }
         }
 
         // 5) Construir PIVOT por puesto y TOTALES por EPP
@@ -355,7 +358,7 @@ class EppRequeridosController extends Controller
     $anio   = (int) ($request->input('anio') ?: date('Y'));
 
     // ==== Catálogo de EPP para el selector ====
-    $eppsAll = DB::table('epp')->select('id_epp','equipo','codigo')->orderBy('equipo')->get();
+    $eppsAll = DB::table('epp')->select('id_epp','equipo','codigo','permanente')->orderBy('equipo')->get();
 
     // Si no hay EPP elegido, renderiza solo el filtro
     if ($eppId <= 0) {
@@ -365,6 +368,12 @@ class EppRequeridosController extends Controller
             'resumen' => ['total'=>0,'entregados'=>0,'pendientes'=>0,'avance'=>0],
             'entregados' => collect(), 'pendientes' => collect(),
         ]);
+    }
+
+    $selectedEpp = $eppsAll->firstWhere('id_epp', $eppId);
+    $isPermanente = false;
+    if ($selectedEpp) {
+        $isPermanente = strtoupper(trim((string) ($selectedEpp->permanente ?? ''))) === 'SI';
     }
 
     // ==== Puestos matriz activos (para nombres/deptos + mapeo) ====
@@ -488,7 +497,9 @@ class EppRequeridosController extends Controller
         ->whereIn('id_empleado', $empIds);
 
     if ($rango === 'anio') {
-        $asigQ->whereYear('fecha_entrega_epp', $anio);
+        if (!$isPermanente) {
+            $asigQ->whereYear('fecha_entrega_epp', $anio);
+        }
     } elseif ($rango === '12m') {
         $desde = date('Y-m-d', strtotime('-12 months'));
         $hoy   = date('Y-m-d');
@@ -549,3 +560,4 @@ class EppRequeridosController extends Controller
 }
 
 }
+

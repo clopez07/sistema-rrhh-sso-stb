@@ -93,6 +93,8 @@ class IdentificacionRiesgosController extends Controller
         $quimicos = DB::table('quimico')->select('*')->get();
         $probabilidad = DB::table('probabilidad')->select('*')->get();
         $consecuencia = DB::table('consecuencia')->select('*')->get();
+        $equiposEpp = DB::table('epp')->select('equipo')->distinct()->orderBy('equipo')->get();
+        $capacitacionesCatalogo = DB::table('capacitacion')->select('capacitacion')->distinct()->orderBy('capacitacion')->get();
 
         $valoracionTabla = DB::table('valoracion_riesgo as v')
             ->join('nivel_riesgo as n','n.id_nivel_riesgo','=','v.id_nivel_riesgo')
@@ -101,7 +103,7 @@ class IdentificacionRiesgosController extends Controller
 
         return view(
             'riesgos.identificacion-guardar',
-            compact('puestos', 'quimicos' ,'probabilidad', 'consecuencia', 'valoracionTabla')
+            compact('puestos', 'quimicos' ,'probabilidad', 'consecuencia', 'valoracionTabla', 'equiposEpp', 'capacitacionesCatalogo')
         );
     }
 
