@@ -159,7 +159,7 @@ class ReporteRuidoExport
             }
 
             // Límite (default 85)
-            $lim  = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 85.0;
+            $lim  = is_numeric($r->limites_aceptables) ? (float)$r->limites_aceptables : 80.0;
 
             // Reducción por EPP (si excede límite)
             $nrr  = null;
@@ -167,7 +167,7 @@ class ReporteRuidoExport
 
             if ($prom !== null && $prom > $lim) {
                 // Área Interna → Orejeras (NRR 13.5); otro caso → Tapones (NRR 11.24)
-                $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+                $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 22.00 : 27.00;
                 $nre = $prom - $nrr;
             }
 

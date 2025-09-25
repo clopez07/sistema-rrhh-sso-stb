@@ -436,26 +436,57 @@ class IdentificacionRiesgosController extends Controller
             // 3.2 Químicos (reset + insert)
             DB::table('quimico_puesto')->where('id_puesto_trabajo_matriz', $idPuesto)->delete();
 
+            $hasQuimico = false;
             $toInsert = [];
             foreach ($quimReq as $qr) {
                 $qid = Arr::get($qr, 'id_quimico');
-                if ($qid === null || $qid === '') continue;
+                if ($qid === null || $qid === '') {
+                    continue;
+                }
                 $toInsert[] = [
-                    'id_quimico'               => (int)$qid,
+                    'id_quimico'               => (int) $qid,
                     'id_puesto_trabajo_matriz' => $idPuesto,
                     'duracion_exposicion'      => Arr::get($qr, 'duracion'),
                     'frecuencia'               => Arr::get($qr, 'frecuencia'),
                 ];
             }
             if ($toInsert) {
-                $allQ = DB::table('quimico')->whereIn('id_quimico', array_column($toInsert, 'id_quimico'))->pluck('id_quimico')->all();
-                $faltantes = array_diff(array_column($toInsert, 'id_quimico'), $allQ);
+                $catalogo = DB::table('quimico')
+                    ->whereIn('id_quimico', array_column($toInsert, 'id_quimico'))
+                    ->select('id_quimico', 'nombre_comercial')
+                    ->get();
+
+                $catalogoIds = $catalogo->pluck('id_quimico')->all();
+                $faltantes = array_diff(array_column($toInsert, 'id_quimico'), $catalogoIds);
                 if ($faltantes) {
-                    throw new \RuntimeException('PASO 2 (químicos): id_quimico inexistente: '.implode(', ', $faltantes));
+                    throw new \RuntimeException('PASO 2 (quimicos): id_quimico inexistente: '.implode(', ', $faltantes));
                 }
+
+                $hasQuimico = $catalogo->contains(function ($row) {
+                    $nombre = strtoupper(trim((string) $row->nombre_comercial));
+                    return $nombre !== '' && $nombre !== 'NINGUNO';
+                });
+
                 DB::table('quimico_puesto')->insert($toInsert);
             }
 
+            if ($hasQuimico) {
+                DB::table('riesgo_valor')->updateOrInsert(
+                    [
+                        'id_puesto_trabajo_matriz' => $idPuesto,
+                        'id_riesgo'                => 68,
+                    ],
+                    [
+                        'valor'         => 'SI',
+                        'observaciones' => null,
+                    ]
+                );
+            } else {
+                DB::table('riesgo_valor')
+                    ->where('id_puesto_trabajo_matriz', $idPuesto)
+                    ->where('id_riesgo', 68)
+                    ->delete();
+            }
             // 3.3 NUEVAS TABLAS: Visual / Ruido / Térmico
             // Limpia actuales
             DB::table('ident_esfuerzo_visual')->where('id_puesto_trabajo_matriz', $idPuesto)->delete();

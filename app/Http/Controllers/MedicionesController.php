@@ -477,7 +477,7 @@ public function reporteRuido(\Illuminate\Http\Request $request)
         $obs = $r->acciones_correctivas;
 
         if (!is_null($prom) && $prom > $REDUCCION_UMBRAL) {
-            $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+            $nrr = (strcasecmp((string)$r->area_nombre, 'Area Interna') === 0) ? 22.00 : 27.00;
             $nre = $prom - $nrr;
 
             // Observación automática si viene vacía

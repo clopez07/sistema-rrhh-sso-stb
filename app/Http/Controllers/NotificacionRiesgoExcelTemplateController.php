@@ -27,206 +27,123 @@ class NotificacionRiesgoExcelTemplateController extends Controller
     public function export(Request $request)
     {
         $request->validate([
-            'ptm_id' => 'required|integer|exists:puesto_trabajo_matriz,id_puesto_trabajo_matriz',
+            'puesto_token' => 'required|string',
         ]);
 
-        // === Datos base
-        $ptmId = (int)$request->ptm_id;
-        $ptm = DB::table('puesto_trabajo_matriz')
-            ->where('id_puesto_trabajo_matriz', $ptmId)
-            ->first(['id_puesto_trabajo_matriz','puesto_trabajo_matriz']);
-        if (!$ptm) abort(404, 'Puesto no encontrado');
+        $token = trim((string) $request->input('puesto_token'));
+        if (!preg_match('/^(M|S):\\d+$/', $token)) {
+            return back()->with('error', 'Selecci�n de puesto inv�lida.');
+        }
 
-$targetName = trim((string) $ptm->puesto_trabajo_matriz);
+        [$source, $idRaw] = explode(':', $token, 2);
+        $puestoId = (int) $idRaw;
+        if ($puestoId <= 0) {
+            return back()->with('error', 'Selecci�n de puesto inv�lida.');
+        }
 
-$empleados = DB::table('empleado as e')
-    ->leftJoin('puesto_trabajo_matriz as pm', 'pm.id_puesto_trabajo_matriz', '=', 'e.id_puesto_trabajo_matriz')
-    ->leftJoin('puesto_trabajo as ps', 'ps.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
-    ->where('e.estado', 1)
-    // Si tiene matriz (no NULL/0) comparamos contra pm.puesto_trabajo_matriz;
-    // si no, comparamos contra el nombre del puesto del sistema (ps.puesto_trabajo).
-    ->whereRaw(
-        'TRIM(UPPER(CASE 
-            WHEN e.id_puesto_trabajo_matriz IS NOT NULL AND e.id_puesto_trabajo_matriz <> 0
-                THEN pm.puesto_trabajo_matriz
-            ELSE ps.puesto_trabajo
-        END)) = TRIM(UPPER(?))',
-        [$targetName]
-    )
-    ->orderBy('e.nombre_completo')
-    ->get(['e.nombre_completo','e.identidad']);
+        if ($source === 'M') {
+            $puestoRow = DB::table('puesto_trabajo_matriz')
+                ->where('id_puesto_trabajo_matriz', $puestoId)
+                ->first(['id_puesto_trabajo_matriz', 'puesto_trabajo_matriz']);
+            $puestoNombre = $puestoRow ? trim((string) $puestoRow->puesto_trabajo_matriz) : '';
+        } else {
+            $puestoRow = DB::table('puesto_trabajo')
+                ->where('id_puesto_trabajo', $puestoId)
+                ->first(['id_puesto_trabajo', 'puesto_trabajo']);
+            $puestoNombre = $puestoRow ? trim((string) $puestoRow->puesto_trabajo) : '';
+        }
 
-        // === Cargar plantilla desde storage/app/public
-        // Asegúrate de tener el symlink: php artisan storage:link
+        if ($puestoNombre === '') {
+            return back()->with('error', 'Puesto no encontrado.');
+        }
+
+        $empleados = DB::table('empleado as e')
+            ->leftJoin('puesto_trabajo_matriz as pm', 'pm.id_puesto_trabajo_matriz', '=', 'e.id_puesto_trabajo_matriz')
+            ->leftJoin('puesto_trabajo as ps', 'ps.id_puesto_trabajo', '=', 'e.id_puesto_trabajo')
+            ->where('e.estado', 1)
+            ->whereRaw(
+                'TRIM(UPPER(CASE 
+                    WHEN e.id_puesto_trabajo_matriz IS NOT NULL AND e.id_puesto_trabajo_matriz <> 0
+                        THEN pm.puesto_trabajo_matriz
+                    ELSE ps.puesto_trabajo
+                END)) = TRIM(UPPER(?))',
+                [$puestoNombre]
+            )
+            ->orderBy('e.nombre_completo')
+            ->get(['e.nombre_completo','e.identidad']);
+
         $templateRelPath = 'formato_notificacion_riesgos_puesto.xlsx';
         $templatePath = Storage::disk('public')->path($templateRelPath);
-
         if (!file_exists($templatePath)) {
-            abort(500, "No se encontró la plantilla en storage/app/public/{$templateRelPath}");
+            abort(500, "No se encontr� la plantilla en storage/app/public/{$templateRelPath}");
         }
 
         $spreadsheet = IOFactory::load($templatePath);
-        // Solo insertar el puesto en C13 y descargar, dejando el resto en blanco
-        $sheet = $spreadsheet->getActiveSheet();
-        $this->writePuesto($sheet, $ptm->puesto_trabajo_matriz);
-        // Reforzar encabezado si la plantilla lo pierde al guardar (textboxes no soportados)
-        // Solo escribir si están vacíos para no sobreescribir encabezados válidos
-        $h1 = trim((string)$sheet->getCell('C1')->getValue());
-        $h2 = trim((string)$sheet->getCell('C2')->getValue());
-        $h3 = trim((string)$sheet->getCell('C3')->getValue());
-        if ($h1 === '') { $sheet->setCellValue('C1', 'SERVICE AND TRADING BUSINESS S.A. DE C.V.'); }
-        if ($h2 === '') { $sheet->setCellValue('C2', 'PROCESO SALUD Y SEGURIDAD OCUPACIONAL/ HEALTH AND OCCUPATIONAL SAFETY PROCESS'); }
-        if ($h3 === '') { $sheet->setCellValue('C3', 'NOTIFICACION DE RIESGO/ NOTIFICATION OF RISK'); }
-
-        // Paginación: 15 empleados por hoja (B16 nombre, C16 identidad)
         $perPage = 15;
-        $chunks  = $empleados->chunk($perPage);
-        if ($chunks->isEmpty()) { $chunks = collect([collect()]); }
+        $chunks = $empleados->chunk($perPage);
+        if ($chunks->isEmpty()) {
+            $chunks = collect([collect()]);
+        }
 
-        // Clonar hojas adicionales conservando el formato de la primera
-        $base = $spreadsheet->getSheet(0);
+        $baseSheet = $spreadsheet->getSheet(0);
         for ($i = 1; $i < $chunks->count(); $i++) {
-            $clone = $base->copy();
-            $clone->setTitle('Notificación '.($i+1));
+            $clone = $baseSheet->copy();
+            $clone->setTitle('Notificaci�n ' . ($i + 1));
             $spreadsheet->addSheet($clone);
         }
 
-        // Rellenar cada hoja
-        foreach ($chunks as $index => $chunk) {
-            /** @var \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sh */
-            $sh = $spreadsheet->getSheet($index);
-            // Asegurar puesto en C13 y encabezados visibles
-            $this->writePuesto($sh, $ptm->puesto_trabajo_matriz);
-            $eh1 = trim((string)$sh->getCell('C1')->getValue());
-            $eh2 = trim((string)$sh->getCell('C2')->getValue());
-            $eh3 = trim((string)$sh->getCell('C3')->getValue());
-            if ($eh1 === '') { $sh->setCellValue('C1', 'SERVICE AND TRADING BUSINESS S.A. DE C.V.'); }
-            if ($eh2 === '') { $sh->setCellValue('C2', 'PROCESO SALUD Y SEGURIDAD OCUPACIONAL/ HEALTH AND OCCUPATIONAL SAFETY PROCESS'); }
-            if ($eh3 === '') { $sh->setCellValue('C3', 'NOTIFICACION DE RIESGO/ NOTIFICATION OF RISK'); }
+        $globalNumber = 1;
 
-            // Limpiar 15 filas (solo columnas B y C)
+        foreach ($chunks as $index => $chunk) {
+            /** @var Worksheet $sheet */
+            $sheet = $spreadsheet->getSheet($index);
+            $this->writePuesto($sheet, $puestoNombre);
+
+            $h1 = trim((string) $sheet->getCell('C1')->getValue());
+            $h2 = trim((string) $sheet->getCell('C2')->getValue());
+            $h3 = trim((string) $sheet->getCell('C3')->getValue());
+            if ($h1 === '') { $sheet->setCellValue('C1', 'SERVICE AND TRADING BUSINESS S.A. DE C.V.'); }
+            if ($h2 === '') { $sheet->setCellValue('C2', 'PROCESO SALUD Y SEGURIDAD OCUPACIONAL/ HEALTH AND OCCUPATIONAL SAFETY PROCESS'); }
+            if ($h3 === '') { $sheet->setCellValue('C3', 'NOTIFICACION DE RIESGO/ NOTIFICATION OF RISK'); }
+
             for ($r = 16; $r < 16 + $perPage; $r++) {
-                $sh->setCellValue('B'.$r, '');
-                $sh->setCellValueExplicit('C'.$r, '', \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit('A' . $r, '', DataType::TYPE_STRING);
+                $sheet->setCellValue('B' . $r, '');
+                $sheet->setCellValueExplicit('C' . $r, '', DataType::TYPE_STRING);
+                $sheet->setCellValue('D' . $r, '');
             }
-            // Escribir chunk
+
             $row = 16;
             foreach ($chunk as $emp) {
-                $sh->setCellValue('B'.$row, (string)($emp->nombre_completo ?? ''));
-                $sh->setCellValueExplicit('C'.$row, (string)($emp->identidad ?? ''), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $sheet->setCellValue('A' . $row, $globalNumber++);
+                $sheet->setCellValue('B' . $row, (string) ($emp->nombre_completo ?? ''));
+                $sheet->setCellValueExplicit('C' . $row, (string) ($emp->identidad ?? ''), DataType::TYPE_STRING);
+                $sheet->setCellValue('D' . $row, '');
                 $row++;
-                if ($row >= 16 + $perPage) break;
             }
-            $sh->setTitle($index === 0 ? 'Notificación 1' : ('Notificación '.($index+1)));
         }
-        $safeName = preg_replace('/[^\\w\\-]+/u', '_', $ptm->puesto_trabajo_matriz);
-        $filename = "Notificacion_Riesgos_{$safeName}_" . Carbon::now()->format('Ymd') . ".xlsx";
+
+        $safeName = preg_replace('/[^\\w\\-]+/u', '_', $puestoNombre);
+        $filename = 'Notificacion_Riesgos_' . $safeName . '_' . Carbon::now()->format('Ymd') . '.xlsx';
+
         try {
-            $tmp = storage_path('app/'.uniqid('notif_puesto_', true).'.xlsx');
+            $tmp = storage_path('app/' . uniqid('notif_puesto_', true) . '.xlsx');
             $writer = IOFactory::createWriter($spreadsheet, 'Xlsx');
             $writer->save($tmp);
             while (ob_get_level() > 0) { @ob_end_clean(); }
             $spreadsheet->disconnectWorksheets();
             unset($spreadsheet);
         } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo generar el archivo de Excel: '.$e->getMessage());
+            return back()->with('error', 'No se pudo generar el archivo de Excel: ' . $e->getMessage());
         }
+
         return response()->download($tmp, $filename, [
             'Content-Type'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Cache-Control'             => 'max-age=0, no-cache, no-store, must-revalidate',
             'Pragma'                    => 'no-cache',
             'Content-Transfer-Encoding' => 'binary',
         ])->deleteFileAfterSend(true);
-        // Tomamos la PRIMERA hoja como plantilla base para clonar si hay varias páginas
-        $baseSheet = $spreadsheet->getSheet(0);
-
-        // Parámetros del template
-        $perPage = 15; // asumiendo 15 filas dibujadas para firmas
-        $fecha = Carbon::now()->format('d/m/Y');
-
-        // Vamos a dividir empleados en chunks de 15.
-        $chunks = $empleados->chunk($perPage);
-        if ($chunks->isEmpty()) {
-            $chunks = collect([collect()]); // al menos una página vacía
-        }
-
-        // Rellenar la primera hoja y clonar para el resto
-        $totalSheetsNeeded = $chunks->count();
-        for ($i = 1; $i < $totalSheetsNeeded; $i++) {
-            $clone = $baseSheet->copy();
-            $clone->setTitle('Notificación ' . ($i+1));
-            $spreadsheet->addSheet($clone);
-        }
-
-        // Rellenar cada hoja con su chunk
-        foreach ($chunks as $index => $chunk) {
-            /** @var Worksheet $sheet */
-            $sheet = $spreadsheet->getSheet($index);
-
-        // --- 1) Escribir Puesto en la celda C13 (según solicitud)
-        $this->writePuesto($sheet, $ptm->puesto_trabajo_matriz);
-
-            // --- 2) Escribir fecha si existe un named range "FECHA" o una celda que contenga "Fecha:"
-            $this->writeFecha($sheet, $fecha);
-
-            // --- 3) Localizar cabecera de la tabla "N°, Nombre, Identidad, Firma"
-            [$headerRow, $colA, $colB, $colC, $colD] = $this->findHeader($sheet);
-
-            $startRow = $headerRow + 1;
-            $n = 1;
-
-            // Borrar/limpiar las 15 filas destino (para no arrastrar datos previos)
-            for ($r = $startRow; $r < $startRow + $perPage; $r++) {
-                $sheet->setCellValueExplicit("A{$r}", '', DataType::TYPE_STRING);
-                $sheet->setCellValue("B{$r}", '');
-                $sheet->setCellValueExplicit("C{$r}", '', DataType::TYPE_STRING);
-                $sheet->setCellValue("D{$r}", '');
-            }
-
-            // Rellenar chunk
-            foreach ($chunk as $emp) {
-                $sheet->setCellValue("A{$startRow}", $n);
-                $sheet->setCellValue("B{$startRow}", $emp->nombre_completo ?? '');
-
-                // Identidad como TEXTO para conservar formato
-                $sheet->setCellValueExplicit("C{$startRow}", (string)($emp->identidad ?? ''), DataType::TYPE_STRING);
-
-                // Firma queda en blanco (celda D)
-                $n++;
-                $startRow++;
-            }
-
-            // Completar filas restantes hasta 15 con numeración
-            while (($startRow - $headerRow - 1) < $perPage) {
-                $sheet->setCellValue("A{$startRow}", $n);
-                $sheet->setCellValue("B{$startRow}", '');
-                $sheet->setCellValueExplicit("C{$startRow}", '', DataType::TYPE_STRING);
-                $sheet->setCellValue("D{$startRow}", '');
-                $n++; $startRow++;
-            }
-
-            // Renombrar hoja (opcional, útil si vas a imprimir)
-            $sheet->setTitle($index === 0 ? 'Notificación 1' : ('Notificación ' . ($index+1)));
-        }
-
-        // Descargar
-        $safeName = preg_replace('/[^\w\-]+/u', '_', $ptm->puesto_trabajo_matriz);
-        $filename = "Notificacion_Riesgos_{$safeName}_" . Carbon::now()->format('Ymd') . ".xlsx";
-
-        $writer = new Xlsx($spreadsheet);
-        return response()->streamDownload(function() use ($writer) {
-            $writer->save('php://output');
-        }, $filename, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
     }
-
-    /**
-     * Intenta escribir el puesto:
-     *  1) Named range "PUESTO" (ideal).
-     *  2) Buscar celda que contenga "PERSONAL NOTIFICADO DE:" y completar ahí mismo.
-     *  3) Si falla, usar una heurística (por ejemplo, fila 10, col A) — ajusta si tu plantilla difiere.
-     */
     private function writePuesto(Worksheet $sheet, string $puesto): void
     {
         // Escribir directamente en C13
@@ -303,14 +220,57 @@ $empleados = DB::table('empleado as e')
     // Devuelve lista de puestos (para el modal)
     public function puestos()
     {
-        $puestos = DB::table('puesto_trabajo_matriz')
+        $matriz = DB::table('puesto_trabajo_matriz')
             ->where('estado', 1)
             ->orderBy('puesto_trabajo_matriz')
-            ->get(['id_puesto_trabajo_matriz','puesto_trabajo_matriz']);
-        return response()->json($puestos);
-    }
+            ->get(['id_puesto_trabajo_matriz', 'puesto_trabajo_matriz']);
 
-    // Lista de empleados activos para el modal de notificación individual
+        $sistema = DB::table('puesto_trabajo')
+            ->orderBy('puesto_trabajo')
+            ->get(['id_puesto_trabajo', 'puesto_trabajo']);
+
+        $normalizer = fn($nombre) => mb_strtoupper(trim((string) $nombre), 'UTF-8');
+        $items = [];
+        $seen = [];
+
+        foreach ($matriz as $row) {
+            $label = trim((string) ($row->puesto_trabajo_matriz ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $key = $normalizer($label);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $items[] = [
+                'token'  => 'M:' . $row->id_puesto_trabajo_matriz,
+                'label'  => $label,
+                'source' => 'matriz',
+            ];
+        }
+
+        foreach ($sistema as $row) {
+            $label = trim((string) ($row->puesto_trabajo ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $key = $normalizer($label);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $items[] = [
+                'token'  => 'S:' . $row->id_puesto_trabajo,
+                'label'  => $label,
+                'source' => 'sistema',
+            ];
+        }
+
+        usort($items, fn($a, $b) => strcasecmp($a['label'], $b['label']));
+
+        return response()->json(array_values($items));
+    }
     public function empleados()
     {
         $rows = DB::table('empleado as e')
@@ -507,3 +467,4 @@ public function exportEmpleado(Request $request)
 
 
 }
+

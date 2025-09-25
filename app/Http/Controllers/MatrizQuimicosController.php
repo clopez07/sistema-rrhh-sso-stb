@@ -320,9 +320,9 @@ class MatrizQuimicosController extends Controller
             $dv->setFormula1('"X"');
 
             $sheet->getStyle($cell)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle($cell)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFFFFF');
 
-            // <<< Eliminado el pintado manual en verde para TOTAL >>>
-            // (antes se aplicaba fill 00B050 aquí)
+            // Mantiene fondo neutro; el color vendrá solo del formato condicional
         }
 
         // Estilo filas
@@ -388,12 +388,15 @@ class MatrizQuimicosController extends Controller
             'font' => ['bold' => true],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
         ];
-        if ($label === 'PARCIAL') {
+        if ($label === 'TOTAL') {
+            $style['fill'] = ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '00B050']];
+            $style['font']['color'] = ['rgb' => 'FFFFFF'];
+        } elseif ($label === 'PARCIAL') {
             $style['fill'] = ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFC000']];
         } elseif ($label === 'NO CUMPLE') {
             $style['fill'] = ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FF0000']];
         }
-        // Nota: para TOTAL no agregamos 'fill' -> SIN fondo verde
+        // Nota: TOTAL queda verde solo con la X gracias al condicional
 
         $cond->getStyle()->applyFromArray($style);
 
@@ -461,3 +464,4 @@ class MatrizQuimicosController extends Controller
 
 
 }
+

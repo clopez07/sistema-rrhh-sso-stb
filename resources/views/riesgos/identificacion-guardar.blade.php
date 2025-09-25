@@ -352,14 +352,15 @@
     <div class="bar" style="margin-top:8px;">ESFUERZO FISICO</div>
     <table class="sheet">
       <colgroup>
-        <col style="width:12%">
-        <col style="width:20%">
-        <col style="width:14%">
-        <col style="width:14%">
-        <col style="width:12%">
-        <col style="width:12%">  <!-- EPP -->
-        <col style="width:8%">   <!-- Frecuencia -->
-        <col style="width:8%">   <!-- Peso -->
+        <col style="width:10%">
+        <col style="width:15%">
+        <col style="width:15%">
+        <col style="width:10%">
+        <col style="width:10%">
+        <col style="width:10%">
+        <col style="width:10%">
+        <col style="width:10%">
+        <col style="width:10%">
       </colgroup>
       <thead>
         <tr>
@@ -371,6 +372,7 @@
           <th>Frecuencia de Carga</th>
           <th>EPP utilizado</th>
           <th>Peso aproximado</th>
+          <th>Capacitación</th>
         </tr>
       </thead>
       <tbody>
@@ -383,6 +385,7 @@
           <td><input class="cell-input" name="fisico_cargar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_cargar_epp"></td>
           <td><input class="cell-input" name="fisico_cargar_peso"></td>
+          <td><input class="cell-input" name="fisico_cargar_capacitacion"></td>
         </tr>
         <tr>
           <td class="label-cell">Halar</td>
@@ -393,6 +396,7 @@
           <td><input class="cell-input" name="fisico_halar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_halar_epp"></td>
           <td><input class="cell-input" name="fisico_halar_peso"></td>
+          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
         </tr>
         <tr>
           <td class="label-cell">Empujar</td>
@@ -403,6 +407,7 @@
           <td><input class="cell-input" name="fisico_empujar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_empujar_epp"></td>
           <td><input class="cell-input" name="fisico_empujar_peso"></td>
+          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
         </tr>
         <tr>
           <td class="label-cell">Sujetar</td>
@@ -413,6 +418,7 @@
           <td><input class="cell-input" name="fisico_sujetar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_sujetar_epp"></td>
           <td><input class="cell-input" name="fisico_sujetar_peso"></td>
+          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
         </tr>
       </tbody>
     </table>
@@ -512,14 +518,16 @@
 <div class="bar" style="margin-top:8px;">EXPOSICIÓN A RUIDO</div>
 <table class="sheet" id="tabla-ruido">
   <colgroup>
-    <col style="width:65%">
-    <col style="width:30%">
+    <col style="width:55%">
+    <col style="width:20%">
+    <col style="width:20%">
     <col style="width:5%">
   </colgroup>
   <thead>
     <tr>
       <th>Descripción de ruido</th>
       <th>Duración de exposición</th>
+      <th>EPP utilizado</th>
       <th></th>
     </tr>
   </thead>
@@ -541,7 +549,8 @@
           <option value="Ninguno"></option>
         </datalist>
       </td>
-      <td><input class="cell-input" name="ruido[0][duracion]" placeholder="ej. 2 h/turno"></td>
+      <td><input class="cell-input" name="ruido[0][duracion]"></td>
+      <td><input class="cell-input" name="ruido[0][duracion]"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -554,14 +563,16 @@
 <div class="bar" style="margin-top:8px;">EXPOSICIÓN STRESS TÉRMICO</div>
 <table class="sheet" id="tabla-termico">
   <colgroup>
-    <col style="width:65%">
-    <col style="width:30%">
+    <col style="width:55%">
+    <col style="width:20%">
+    <col style="width:20%">
     <col style="width:5%">
   </colgroup>
   <thead>
     <tr>
       <th>Descripción de stress térmico</th>
       <th>Duración de exposición</th>
+      <th>EPP utilizado</th>
       <th></th>
     </tr>
   </thead>
@@ -583,7 +594,8 @@
           <option value="Baja Temperatura (Sala de Hielo)"></option>
         </datalist>
       </td>
-      <td><input class="cell-input" name="termico[0][duracion]" placeholder="ej. 30 min cada hora"></td>
+      <td><input class="cell-input" name="termico[0][duracion]"></td>
+      <td><input class="cell-input" name="termico[0][duracion]"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -700,16 +712,20 @@
 <div class="bar" style="margin-top:8px;">EXPOSICIÓN A QUÍMICOS</div>
 <table class="sheet" id="tabla-quimicos">
   <colgroup>
-    <col style="width:50%">
-    <col style="width:25%">
-    <col style="width:25%">
+    <col style="width:20%">
+    <col style="width:20%">
+    <col style="width:20%">
+    <col style="width:20%">
+    <col style="width:20%">
     <col style="width:28px">
   </colgroup>
   <thead>
     <tr>
       <th>Descripción del químico</th>
+      <th>Capacitación</th>
       <th>Duración de exposición</th>
       <th>Frecuencia</th>
+      <th>EPP utilizado</th>
       <th></th>
     </tr>
   </thead>
@@ -726,6 +742,8 @@
         @endforeach
       </datalist>
     </td>
+    <td><input class="cell-input" name="quimicos[0][duracion]"></td>
+    <td><input class="cell-input" name="quimicos[0][frecuencia]"></td>
     <td><input class="cell-input" name="quimicos[0][duracion]"></td>
     <td><input class="cell-input" name="quimicos[0][frecuencia]"></td>
     <td style="text-align:center; vertical-align:middle;">
@@ -1396,6 +1414,18 @@
       <td style="width:25%;"><input class="cell-input" name="alturas[anclaje_seguro]"></td>
     </tr>
     <tr>
+      <td class="label-cell" style="width:25%;">Inspección estado de EPP</td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[altura]"></td>
+      <td class="label-cell" style="width:25%;">EPP utilizado</td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[anclaje_seguro]"></td>
+    </tr>
+    <tr>
+      <td class="label-cell" style="width:25%;">Señalización</td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[altura]"></td>
+      <td class="label-cell" style="width:25%;">Capacitación Recibida</td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[anclaje_seguro]"></td>
+    </tr>
+    <tr>
       <td class="label-cell">Se da Aviso del trabajo en altura</td>
       <td><input class="cell-input" name="alturas[aviso_trabajo_altura]"></td>
       <td class="label-cell">Firma hoja de trabajo seguro</td>
@@ -1464,6 +1494,16 @@
       </select>
     </td>
 
+    <td class="label-cell">EPP utilizado</td>
+    <td>
+      <select class="cell-input" name="elec_hoja_trabajo_seguro">
+        <option value="" selected>—</option>
+        <option value="si">Sí</option>
+        <option value="no">No</option>
+        <option value="na">N/A</option>
+      </select>
+    </td>
+
     <td class="label-cell">Hay zonas de electricidad estática</td>
     <td>
       <select class="cell-input" name="elec_estatica">
@@ -1473,21 +1513,11 @@
         <option value="na">N/A</option>
       </select>
     </td>
-
-    <td class="label-cell">Verificación de ausencia de tensión antes de trabajar</td>
-    <td>
-      <select class="cell-input" name="elec_ausencia_tension">
-        <option value="" selected>—</option>
-        <option value="si">Sí</option>
-        <option value="no">No</option>
-        <option value="na">N/A</option>
-      </select>
-    </td>
   </tr>
 
   <tr>
-    <td class="label-cell" colspan="1">Sistema de bloqueo con tarjeta y candado</td>
-    <td colspan="2">
+    <td class="label-cell">Sistema de bloqueo con tarjeta y candado</td>
+    <td>
       <select class="cell-input" name="elec_bloqueo">
         <option value="" selected>—</option>
         <option value="si">Sí</option>
@@ -1496,8 +1526,18 @@
       </select>
     </td>
 
-    <td class="label-cell" colspan="1">Se da aviso de la realización trabajo eléctrico</td>
-    <td colspan="2">
+  <td class="label-cell">Verificación de ausencia de tensión antes de trabajar</td>
+    <td>
+      <select class="cell-input" name="elec_ausencia_tension">
+        <option value="" selected>—</option>
+        <option value="si">Sí</option>
+        <option value="no">No</option>
+        <option value="na">N/A</option>
+      </select>
+    </td>
+
+    <td class="label-cell">Se da aviso de la realización trabajo eléctrico</td>
+    <td>
       <select class="cell-input" name="elec_aviso">
         <option value="" selected>—</option>
         <option value="si">Sí</option>
@@ -1617,6 +1657,31 @@
     <tr>
       <td class="label-cell">Observaciones:</td>
       <td><textarea class="cell-input" style="height:70px" name="caida_observaciones"></textarea></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="bar" style="margin-top:8px;">OTROS RIESGOS</div>
+<table class="sheet" id="tabla-caida">
+
+  <thead>
+    <tr>
+      <th>NOMBRE</th>
+      <th>Respuesta (SI/NO)</th>
+    </tr>
+  </thead>
+  <tbody>
+        <tr>
+      <td class="label-cell">Biológico</td>
+      <td><input class="cell-input" name="caida_observaciones"></input></td>
+    </tr>
+        <tr>
+      <td class="label-cell">Psicosocial</td>
+      <td><input class="cell-input" name="caida_observaciones"></input></td>
+    </tr>
+        <tr>
+      <td class="label-cell">Naturales</td>
+      <td><input class="cell-input" name="caida_observaciones"></input></td>
     </tr>
   </tbody>
 </table>

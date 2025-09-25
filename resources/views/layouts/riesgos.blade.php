@@ -187,7 +187,23 @@
               <span class="text-sm font-medium">Evaluación de Riesgos (Excel)</span>
             </a>
           </li>
-<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">PASO 4</li>
+
+          <li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">PASO 4</li>
+          <li>
+  @php
+    $planActive = request()->routeIs('riesgos.verificacion.plan_accion');
+  @endphp
+  <a href="{{ route('riesgos.verificacion.plan_accion') }}"
+     class="group flex items-center gap-3 rounded-xl px-3 py-2 {{ $planActive ? 'bg-brand/10 text-brand border border-brand/30' : 'text-slate-700 hover:bg-slate-100 border border-transparent' }}">
+    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7M9 12h6m-6 4h4" />
+    </svg>
+    <span class="text-sm font-medium">Plan de Acción (Control de Riesgos)</span>
+  </a>
+</li>
+
+<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">PASO 5</li>
           <!-- Matrices/Resumen (collapsible) -->
           <li>
             <button type="button"
@@ -215,7 +231,7 @@
               </a>
             </div>
           </li>
-<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">PASO 5</li>
+<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">PASO 6</li>
           <!-- Notificación de Riesgos (collapsible) -->
           <li>
             <button type="button"
@@ -246,7 +262,7 @@
               </a>
             </div>
           </li>
-<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">Consultar Información/li>
+<li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">Consultar Información</li>
           <!-- Ver Información -->
           <li>
             <a href="/verificacion" class="group flex items-center gap-3 rounded-xl px-3 py-2 {{ $activeLink('verificacion*') }}">
@@ -430,7 +446,7 @@
         <form id="form-export-notif-puesto" action="{{ route('notificacion.excel.export') }}" method="POST" class="p-4 md:p-5">
           @csrf
           <label for="ptm-select-notif" class="block mb-2 text-sm font-medium text-gray-900">Selecciona el Puesto de Trabajo</label>
-          <select id="ptm-select-notif" name="ptm_id" class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-1 focus:ring-blue-500" required>
+          <select id="ptm-select-notif" name="puesto_token" class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-1 focus:ring-blue-500" required>
             <option value="">Cargando puestos...</option>
           </select>
           <div class="mt-5 flex justify-end gap-2">
@@ -582,9 +598,13 @@
           .then(rows => {
             selectEmp.innerHTML = '<option value="">Seleccione...</option>';
             rows.forEach(r => {
+              if (r.source !== 'matriz') {
+                return;
+              }
+              const tokenParts = (r.token || '').split(':');
               const opt = document.createElement('option');
-              opt.value = r.id_puesto_trabajo_matriz;
-              opt.textContent = r.puesto_trabajo_matriz;
+              opt.value = tokenParts[1] || '';
+              opt.textContent = r.label;
               selectEmp.appendChild(opt);
             });
             loadedEmp = true;
@@ -624,8 +644,8 @@
             selectNP.innerHTML = '<option value="">Seleccione...</option>';
             rows.forEach(r => {
               const opt = document.createElement('option');
-              opt.value = r.id_puesto_trabajo_matriz;
-              opt.textContent = r.puesto_trabajo_matriz;
+              opt.value = r.token;
+              opt.textContent = r.source === 'sistema' ? r.label + ' (Sistema)' : r.label;
               selectNP.appendChild(opt);
             });
             loadedNP = true;

@@ -106,7 +106,7 @@ class RiesgosController extends Controller
         'id_puesto_trabajo_matriz'  => 'required|integer',
         'id_probabilidad'           => 'nullable|integer',
         'id_consecuencia'           => 'nullable|integer',
-        'id_nivel_riesgo'           => 'nullable|integer', // lo recalculamos abajo si no viene
+        'id_nivel_riesgo'           => 'nullable|integer', // recalculated later if not provided
         'eliminacion'               => 'nullable|string|max:500',
         'sustitucion'               => 'nullable|string|max:500',
         'aislar'                    => 'nullable|string|max:500',
@@ -114,22 +114,42 @@ class RiesgosController extends Controller
         'control_administrativo'    => 'nullable|string|max:1000',
     ]);
 
-    // Cálculo server por si el front no manda nivel
+    // Server side fallback so level is always derived
     if (empty($data['id_nivel_riesgo']) && !empty($data['id_probabilidad']) && !empty($data['id_consecuencia'])) {
         $nivel = DB::table('valoracion_riesgo')
-            ->where('id_probabilidad',$data['id_probabilidad'])
-            ->where('id_consecuencia',$data['id_consecuencia'])
+            ->where('id_probabilidad', $data['id_probabilidad'])
+            ->where('id_consecuencia', $data['id_consecuencia'])
             ->value('id_nivel_riesgo');
-        if ($nivel) $data['id_nivel_riesgo'] = (int)$nivel;
+        if ($nivel) {
+            $data['id_nivel_riesgo'] = (int) $nivel;
+        }
     }
 
-    $key = [ 'id_puesto_trabajo_matriz' => $data['id_puesto_trabajo_matriz'] ];
+    $puestoId = (int) $data['id_puesto_trabajo_matriz'];
     $updates = $data;
     unset($updates['id_puesto_trabajo_matriz']);
 
-    DB::table('medidas_control')->updateOrInsert($key, array_filter($updates, fn($v)=>$v!==null));
+    $payload = array_filter($updates, fn ($v) => $v !== null);
 
-    return response()->json(['ok'=>true]);
+    DB::transaction(function () use ($puestoId, $payload) {
+        $existingIds = DB::table('medidas_control')
+            ->where('id_puesto_trabajo_matriz', $puestoId)
+            ->orderBy('id_medidas_control')
+            ->pluck('id_medidas_control');
+
+        if ($existingIds->count() > 1) {
+            DB::table('medidas_control')
+                ->whereIn('id_medidas_control', $existingIds->slice(1)->all())
+                ->delete();
+        }
+
+        DB::table('medidas_control')->updateOrInsert(
+            ['id_puesto_trabajo_matriz' => $puestoId],
+            $payload
+        );
+    });
+
+    return response()->json(['ok' => true]);
 }
 
     public function exportMatrizIdentificacionExcel()

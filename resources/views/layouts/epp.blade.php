@@ -202,6 +202,16 @@
               <span class="text-sm font-medium">Entregas pendientes</span>
             </a>
           </li>
+
+          <li>
+            <a href="/epp/detalle" class="group flex items-center gap-3 rounded-xl px-3 py-2 {{ $activeLink('epp-obligatorios*') }}">
+              <!-- exclamation circle -->
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v4m0 4h.01M12 3a9 9 0 11-9 9 9 9 0 019-9z"/>
+              </svg>
+              <span class="text-sm font-medium">BUSCAR EPP</span>
+            </a>
+          </li>
         </ul>
       </nav>
 
