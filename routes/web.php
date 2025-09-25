@@ -598,6 +598,12 @@ Route::post('/prestamos/renuncia/confirmar', [PrestamoRenunciaController::class,
     Route::post('/prestamos/ajustes/commit', [AjustesPrestamosController::class, 'commitExcel'])
         ->name('prestamos.ajustes.commit');
 
+Route::get('/epp/detalle', [\App\Http\Controllers\EppRequeridosController::class, 'detalle'])
+    ->name('epp.detalle');
+    
+Route::get('/capacitaciones/detalle', [\App\Http\Controllers\CapacitacionesRequeridasController::class, 'detalle'])
+    ->name('cap.detalle');
+
 });
 
 
