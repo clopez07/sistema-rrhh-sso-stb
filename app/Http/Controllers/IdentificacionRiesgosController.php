@@ -133,16 +133,18 @@ class IdentificacionRiesgosController extends Controller
             ->map(fn ($row) => [
                 'desc'     => trim($row['desc']     ?? ''),
                 'duracion' => trim($row['duracion'] ?? ''),
+                'epp'      => trim($row['epp']      ?? ''),
             ])
-            ->filter(fn ($row) => $row['desc'] !== '' || $row['duracion'] !== '')
+            ->filter(fn ($row) => $row['desc'] !== '' || $row['duracion'] !== '' || $row['epp'] !== '')
             ->values();
 
         $termico = collect($r->input('termico', []))
             ->map(fn ($row) => [
                 'desc'     => trim($row['desc']     ?? ''),
                 'duracion' => trim($row['duracion'] ?? ''),
+                'epp'      => trim($row['epp']      ?? ''),
             ])
-            ->filter(fn ($row) => $row['desc'] !== '' || $row['duracion'] !== '')
+            ->filter(fn ($row) => $row['desc'] !== '' || $row['duracion'] !== '' || $row['epp'] !== '')
             ->values();
 
         // Helpers varios
@@ -191,6 +193,7 @@ class IdentificacionRiesgosController extends Controller
             'epp_cargar'                 => $r->input('fisico_cargar_epp'),
             'frecuencia_carga_cargar'    => $r->input('fisico_cargar_frecuencia'),
             'peso_cargar'                => $r->input('fisico_cargar_peso'),
+            'capacitacion_cargar'        => $r->input('fisico_cargar_capacitacion'),
 
             'tipo_esfuerzo_halar'        => 'Halar',
             'descripcion_carga_halar'    => $r->input('fisico_halar_desc'),
@@ -200,6 +203,7 @@ class IdentificacionRiesgosController extends Controller
             'epp_halar'                  => $r->input('fisico_halar_epp'),
             'frecuencia_carga_halar'     => $r->input('fisico_halar_frecuencia'),
             'peso_halar'                 => $r->input('fisico_halar_peso'),
+            'capacitacion_halar'         => $r->input('fisico_halar_capacitacion'),
 
             'tipo_esfuerzo_empujar'      => 'Empujar',
             'descripcion_carga_empujar'  => $r->input('fisico_empujar_desc'),
@@ -209,6 +213,7 @@ class IdentificacionRiesgosController extends Controller
             'epp_empujar'                => $r->input('fisico_empujar_epp'),
             'frecuencia_carga_empujar'   => $r->input('fisico_empujar_frecuencia'),
             'peso_empujar'               => $r->input('fisico_empujar_peso'),
+            'capacitacion_empujar'       => $r->input('fisico_empujar_capacitacion'),
 
             'tipo_esfuerzo_sujetar'      => 'Sujetar',
             'descripcion_carga_sujetar'  => $r->input('fisico_sujetar_desc'),
@@ -218,6 +223,7 @@ class IdentificacionRiesgosController extends Controller
             'epp_sujetar'                => $r->input('fisico_sujetar_epp'),
             'frecuencia_carga_sujetar'   => $r->input('fisico_sujetar_frecuencia'),
             'peso_sujetar'               => $r->input('fisico_sujetar_peso'),
+            'capacitacion_sujetar'       => $r->input('fisico_sujetar_capacitacion'),
 
             // --- MEDICIONES (se guardan aquí) ---
             'nivel_mediciones_visual'       => $r->input('visual_lux'),
@@ -335,6 +341,10 @@ class IdentificacionRiesgosController extends Controller
             // --- ALTURAS ---
             'altura'           => $alt['altura'] ?? null,
             'medios_anclaje'   => $alt['anclaje_seguro'] ?? null,
+            'altura_inspeccion_epp' => $alt['inspeccion'] ?? null,
+            'altura_epp'       => $alt['epp'] ?? null,
+            'altura_senalizacion' => $alt['senalizacion'] ?? null,
+            'altura_capacitacion' => $alt['capacitacion'] ?? null,
             'aviso_altura'     => $alt['aviso_trabajo_altura'] ?? null,
             'hoja_trabajo'     => $alt['firma_trabajo_seguro'] ?? null,
 
@@ -347,6 +357,7 @@ class IdentificacionRiesgosController extends Controller
             'ausencia_tension'            => $r->input('elec_ausencia_tension'),
             'bloqueo_tarjetas'            => $r->input('elec_bloqueo'),
             'aviso_trabajo_electrico'     => $r->input('elec_aviso'),
+            'epp_utilizado_electri'       => $r->input('elec_epp_utilizado'),
             'cables_ordenados'              => Arr::get($elecSel, 'cables_ordenados'),
             'tomacorrientes'                => Arr::get($elecSel, 'toma_lejos_humedad'),
             'cajas_interruptores'           => Arr::get($elecSel, 'cajas_rotuladas_cerradas'),
@@ -363,6 +374,11 @@ class IdentificacionRiesgosController extends Controller
             'sistemas_antideslizante'   => $caidaSel['antideslizantes']        ?? null,
             'prevencion_piso_resbaloso' => $caidaSel['senalizacion_piso_resbaloso'] ?? null,
             'observaciones_caida_nivel' => $r->input('caida_observaciones'),
+
+            // --- OTROS RIESGOS ---
+            'otros_biologico'   => $r->input('otros_biologico'),
+            'otros_psicosocial' => $r->input('otros_psicosocial'),
+            'otros_naturales'   => $r->input('otros_naturales'),
 
             // --- Firmas y fechas ---
             'evaluacion_realizada'        => $r->input('eval_realizada_por'),
@@ -446,8 +462,10 @@ class IdentificacionRiesgosController extends Controller
                 $toInsert[] = [
                     'id_quimico'               => (int) $qid,
                     'id_puesto_trabajo_matriz' => $idPuesto,
+                    'capacitacion'             => Arr::get($qr, 'capacitacion'),
                     'duracion_exposicion'      => Arr::get($qr, 'duracion'),
                     'frecuencia'               => Arr::get($qr, 'frecuencia'),
+                    'epp'                      => Arr::get($qr, 'epp'),
                 ];
             }
             if ($toInsert) {
@@ -509,6 +527,7 @@ class IdentificacionRiesgosController extends Controller
                         'id_puesto_trabajo_matriz' => $idPuesto,
                         'descripcion_ruido'        => $row['desc'],
                         'duracion_exposicion'      => $row['duracion'],
+                        'epp'                      => $row['epp'],
                     ])->all()
                 );
             }
@@ -518,6 +537,7 @@ class IdentificacionRiesgosController extends Controller
                         'id_puesto_trabajo_matriz'   => $idPuesto,
                         'descripcion_stress_termico' => $row['desc'],
                         'duracion_exposicion'        => $row['duracion'],
+                        'epp'                        => $row['epp'],
                     ])->all()
                 );
             }
@@ -667,19 +687,19 @@ public function fetch(int $id)
 
     $ruidoRows = DB::table('ident_exposicion_ruido')
         ->where('id_puesto_trabajo_matriz', $id)
-        ->selectRaw('descripcion_ruido as "desc", duracion_exposicion as duracion')
+        ->selectRaw('descripcion_ruido as "desc", duracion_exposicion as duracion, epp')
         ->get();
 
     $termicoRows = DB::table('ident_estres_termico')
         ->where('id_puesto_trabajo_matriz', $id)
-        ->selectRaw('descripcion_stress_termico as "desc", duracion_exposicion as duracion')
+        ->selectRaw('descripcion_stress_termico as "desc", duracion_exposicion as duracion, epp')
         ->get();
 
     // Químicos
     $quimicos = DB::table('quimico_puesto as qp')
         ->join('quimico as q', 'q.id_quimico', '=', 'qp.id_quimico')
         ->where('qp.id_puesto_trabajo_matriz', $id)
-        ->selectRaw('qp.id_quimico, q.nombre_comercial as nombre, qp.duracion_exposicion as duracion, qp.frecuencia')
+        ->selectRaw('qp.id_quimico, q.nombre_comercial as nombre, qp.capacitacion, qp.duracion_exposicion as duracion, qp.frecuencia, qp.epp')
         ->get();
 
     // Riesgo_valor (SI/NO + obs)
@@ -750,6 +770,7 @@ public function fetch(int $id)
                     'epp'       => $ident->epp_cargar ?? '',
                     'frecuencia'=> $ident->frecuencia_carga_cargar ?? '',
                     'peso'      => $ident->peso_cargar ?? '',
+                    'capacitacion' => $ident->capacitacion_cargar ?? '',
                 ],
                 'halar'   => [
                     'desc'      => $ident->descripcion_carga_halar ?? '',
@@ -759,6 +780,7 @@ public function fetch(int $id)
                     'epp'       => $ident->epp_halar ?? '',
                     'frecuencia'=> $ident->frecuencia_carga_halar ?? '',
                     'peso'      => $ident->peso_halar ?? '',
+                    'capacitacion' => $ident->capacitacion_halar ?? '',
                 ],
                 'empujar' => [
                     'desc'      => $ident->descripcion_carga_empujar ?? '',
@@ -768,6 +790,7 @@ public function fetch(int $id)
                     'epp'       => $ident->epp_empujar ?? '',
                     'frecuencia'=> $ident->frecuencia_carga_empujar ?? '',
                     'peso'      => $ident->peso_empujar ?? '',
+                    'capacitacion' => $ident->capacitacion_empujar ?? '',
                 ],
                 'sujetar' => [
                     'desc'      => $ident->descripcion_carga_sujetar ?? '',
@@ -777,6 +800,7 @@ public function fetch(int $id)
                     'epp'       => $ident->epp_sujetar ?? '',
                     'frecuencia'=> $ident->frecuencia_carga_sujetar ?? '',
                     'peso'      => $ident->peso_sujetar ?? '',
+                    'capacitacion' => $ident->capacitacion_sujetar ?? '',
                 ],
             ],
             // OJO: visual/ruido/térmico *en arrays* van abajo (visual_rows/ruido_rows/termico_rows)
@@ -852,8 +876,17 @@ public function fetch(int $id)
             'alturas' => [
                 'altura'               => $ident->altura ?? '',
                 'anclaje_seguro'       => $ident->medios_anclaje ?? '',
+                'inspeccion'           => $ident->altura_inspeccion_epp ?? '',
+                'epp'                  => $ident->altura_epp ?? '',
+                'senalizacion'         => $ident->altura_senalizacion ?? '',
+                'capacitacion'         => $ident->altura_capacitacion ?? '',
                 'aviso_trabajo_altura' => $ident->aviso_altura ?? '',
                 'firma_trabajo_seguro' => $ident->hoja_trabajo ?? '',
+            ],
+            'otros' => [
+                'biologico'   => $ident->otros_biologico ?? '',
+                'psicosocial' => $ident->otros_psicosocial ?? '',
+                'naturales'   => $ident->otros_naturales ?? '',
             ],
             'elec_select' => [
                 'elec_senalizacion'        => $ident->senalizacion_delimitacion ?? '',
@@ -863,6 +896,7 @@ public function fetch(int $id)
                 'elec_estatica'            => $ident->zonas_estatica ?? '',
                 'elec_ausencia_tension'    => $ident->ausencia_tension ?? '',
                 'elec_bloqueo'             => $ident->bloqueo_tarjetas ?? '',
+                'elec_epp_utilizado'      => $ident->epp_utilizado_electri ?? '',
                 'elec_aviso'               => $ident->aviso_trabajo_electrico ?? '',
                 'elec_observaciones'       => $ident->observaciones_electrico ?? '',
             ],

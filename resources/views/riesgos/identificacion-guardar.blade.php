@@ -407,7 +407,7 @@
           <td><input class="cell-input" name="fisico_empujar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_empujar_epp"></td>
           <td><input class="cell-input" name="fisico_empujar_peso"></td>
-          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_empujar_capacitacion"></td>
         </tr>
         <tr>
           <td class="label-cell">Sujetar</td>
@@ -418,7 +418,7 @@
           <td><input class="cell-input" name="fisico_sujetar_frecuencia"></td>
           <td><input class="cell-input" name="fisico_sujetar_epp"></td>
           <td><input class="cell-input" name="fisico_sujetar_peso"></td>
-          <td><input class="cell-input" name="fisico_halar_capacitacion"></td>
+          <td><input class="cell-input" name="fisico_sujetar_capacitacion"></td>
         </tr>
       </tbody>
     </table>
@@ -453,7 +453,8 @@
         `fisico_${k}_distancia`,
         `fisico_${k}_epp`,
         `fisico_${k}_frecuencia`,
-        `fisico_${k}_peso`
+        `fisico_${k}_peso`,
+        `fisico_${k}_capacitacion`
       ];
 
       const applyNA = () => {
@@ -550,7 +551,7 @@
         </datalist>
       </td>
       <td><input class="cell-input" name="ruido[0][duracion]"></td>
-      <td><input class="cell-input" name="ruido[0][duracion]"></td>
+      <td><input class="cell-input" name="ruido[0][epp]"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -595,7 +596,7 @@
         </datalist>
       </td>
       <td><input class="cell-input" name="termico[0][duracion]"></td>
-      <td><input class="cell-input" name="termico[0][duracion]"></td>
+      <td><input class="cell-input" name="termico[0][epp]"></td>
       <td style="text-align:center;vertical-align:middle;">
         <button type="button" class="icon-btn add" aria-label="Añadir fila">+</button>
       </td>
@@ -742,10 +743,10 @@
         @endforeach
       </datalist>
     </td>
+    <td><input class="cell-input" name="quimicos[0][capacitacion]"></td>
     <td><input class="cell-input" name="quimicos[0][duracion]"></td>
     <td><input class="cell-input" name="quimicos[0][frecuencia]"></td>
-    <td><input class="cell-input" name="quimicos[0][duracion]"></td>
-    <td><input class="cell-input" name="quimicos[0][frecuencia]"></td>
+        <td><input class="cell-input" name="quimicos[0][epp]"></td>
     <td style="text-align:center; vertical-align:middle;">
       <button type="button" class="icon-btn add" aria-label="Añadir químico">+</button>
     </td>
@@ -1415,15 +1416,15 @@
     </tr>
     <tr>
       <td class="label-cell" style="width:25%;">Inspección estado de EPP</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[altura]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[inspeccion]"></td>
       <td class="label-cell" style="width:25%;">EPP utilizado</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[anclaje_seguro]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[epp]"></td>
     </tr>
     <tr>
       <td class="label-cell" style="width:25%;">Señalización</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[altura]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[senalizacion]"></td>
       <td class="label-cell" style="width:25%;">Capacitación Recibida</td>
-      <td style="width:25%;"><input class="cell-input" name="alturas[anclaje_seguro]"></td>
+      <td style="width:25%;"><input class="cell-input" name="alturas[capacitacion]"></td>
     </tr>
     <tr>
       <td class="label-cell">Se da Aviso del trabajo en altura</td>
@@ -1496,7 +1497,7 @@
 
     <td class="label-cell">EPP utilizado</td>
     <td>
-      <select class="cell-input" name="elec_hoja_trabajo_seguro">
+      <select class="cell-input" name="elec_epp_utilizado">
         <option value="" selected>—</option>
         <option value="si">Sí</option>
         <option value="no">No</option>
@@ -1673,15 +1674,15 @@
   <tbody>
         <tr>
       <td class="label-cell">Biológico</td>
-      <td><input class="cell-input" name="caida_observaciones"></input></td>
+      <td><input class="cell-input" name="otros_biologico"></input></td>
     </tr>
         <tr>
       <td class="label-cell">Psicosocial</td>
-      <td><input class="cell-input" name="caida_observaciones"></input></td>
+      <td><input class="cell-input" name="otros_psicosocial"></input></td>
     </tr>
         <tr>
       <td class="label-cell">Naturales</td>
-      <td><input class="cell-input" name="caida_observaciones"></input></td>
+      <td><input class="cell-input" name="otros_naturales"></input></td>
     </tr>
   </tbody>
 </table>
@@ -2944,8 +2945,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // primera
     base.querySelector('.quimico-id').value = rows[0].id_quimico ?? '';
     base.querySelector('.quimico-nombre').value = rows[0].nombre ?? '';
+    q(`[name="quimicos[0][capacitacion]"]`).value = rows[0].capacitacion ?? '';
     q(`[name="quimicos[0][duracion]"]`).value = rows[0].duracion ?? '';
     q(`[name="quimicos[0][frecuencia]"]`).value = rows[0].frecuencia ?? '';
+    q(`[name="quimicos[0][epp]"]`).value = rows[0].epp ?? '';
 
     // resto
     for (let i=1;i<rows.length;i++){
@@ -2956,10 +2959,14 @@ document.addEventListener('DOMContentLoaded', () => {
       clon.querySelector('.quimico-nombre').name = `quimicos[${i}][nombre]`;
       clon.querySelector('.quimico-id').value = rows[i].id_quimico ?? '';
       clon.querySelector('.quimico-nombre').value = rows[i].nombre ?? '';
+      clon.querySelector('[name^="quimicos["][name$="[capacitacion]"]').name = `quimicos[${i}][capacitacion]`;
       clon.querySelector('[name^="quimicos["][name$="[duracion]"]').name = `quimicos[${i}][duracion]`;
       clon.querySelector('[name^="quimicos["][name$="[frecuencia]"]').name = `quimicos[${i}][frecuencia]`;
+      clon.querySelector('[name^="quimicos["][name$="[epp]"]').name = `quimicos[${i}][epp]`;
+      clon.querySelector(`[name="quimicos[${i}][capacitacion]"]`).value = rows[i].capacitacion ?? '';
       clon.querySelector(`[name="quimicos[${i}][duracion]"]`).value = rows[i].duracion ?? '';
       clon.querySelector(`[name="quimicos[${i}][frecuencia]"]`).value = rows[i].frecuencia ?? '';
+      clon.querySelector(`[name="quimicos[${i}][epp]"]`).value = rows[i].epp ?? '';
     }
   }
 
@@ -2975,14 +2982,16 @@ document.addEventListener('DOMContentLoaded', () => {
       tableId: 'tabla-ruido',
       fields: [
         { selector: '.ruido-desc', key: 'desc', trigger: 'input change' },
-        { selector: 'input[name$="[duracion]"]', key: 'duracion' }
+        { selector: 'input[name$="[duracion]"]', key: 'duracion' },
+        { selector: 'input[name$="[epp]"]', key: 'epp' }
       ]
     },
     termico: {
       tableId: 'tabla-termico',
       fields: [
         { selector: '.termico-desc', key: 'desc', trigger: 'input change' },
-        { selector: 'input[name$="[duracion]"]', key: 'duracion' }
+        { selector: 'input[name$="[duracion]"]', key: 'duracion' },
+        { selector: 'input[name$="[epp]"]', key: 'epp' }
       ]
     }
   };
@@ -3137,14 +3146,25 @@ function fillElec(sel, verif){
       setVal(`fisico_${k}_epp`, obj?.epp||'');
       setVal(`fisico_${k}_frecuencia`, obj?.frecuencia||'');
       setVal(`fisico_${k}_peso`, obj?.peso||'');
+      setVal(`fisico_${k}_capacitacion`, obj?.capacitacion||'');
     };
     ['cargar','halar','empujar','sujetar'].forEach(k => putFis(k, F[k]));
 
     if (payload.alturas){
       setVal('alturas[altura]', payload.alturas.altura || '');
       setVal('alturas[anclaje_seguro]', payload.alturas.anclaje_seguro || '');
+      setVal('alturas[inspeccion]', payload.alturas.inspeccion || '');
+      setVal('alturas[epp]', payload.alturas.epp || '');
+      setVal('alturas[senalizacion]', payload.alturas.senalizacion || '');
+      setVal('alturas[capacitacion]', payload.alturas.capacitacion || '');
       setVal('alturas[aviso_trabajo_altura]', payload.alturas.aviso_trabajo_altura || '');
       setVal('alturas[firma_trabajo_seguro]', payload.alturas.firma_trabajo_seguro || '');
+    }
+
+    if (payload.otros){
+      setVal('otros_biologico', payload.otros.biologico || '');
+      setVal('otros_psicosocial', payload.otros.psicosocial || '');
+      setVal('otros_naturales', payload.otros.naturales || '');
     }
 
     if (payload.firmas){
