@@ -202,6 +202,7 @@
           </button>
           <button type="reset" class="btn">Limpiar</button>
         </div>
+        <p id="mode_warning" class="text-sm text-red-600" style="display:none;"></p>
       </form>
 
       {{-- ===== Datos para JS (puestos) ===== --}}
@@ -222,10 +223,31 @@
         const hiddenId = document.getElementById('id_localizacion');
         const help     = document.getElementById('loc_help');
         const locOpts  = Array.from(document.querySelectorAll('#dl-localizaciones option'));
+        const modeWarning = document.getElementById('mode_warning');
 
         const dlPuestos = document.getElementById('dl-puestos');
         const ruidoBody = document.querySelector('#tbl-ruido tbody');
         const luxBody   = document.querySelector('#tbl-lux tbody');
+        const fechaInicio = form ? form.querySelector('input[name="fecha_realizacion_inicio"]') : null;
+        const fechaFinal  = form ? form.querySelector('input[name="fecha_realizacion_final"]') : null;
+        const existingRuidoInput = document.getElementById('existing_ruido_ids');
+        const existingLuxInput   = document.getElementById('existing_lux_ids');
+        const origFechaInicioRuido = document.getElementById('orig_fecha_inicio_ruido');
+        const origFechaFinalRuido  = document.getElementById('orig_fecha_final_ruido');
+        const origFechaInicioLux   = document.getElementById('orig_fecha_inicio_lux');
+        const origFechaFinalLux    = document.getElementById('orig_fecha_final_lux');
+
+        let lastModeClicked = null;
+        const modeButtons = form ? Array.from(form.querySelectorAll('button[name="mode"]')) : [];
+        modeButtons.forEach(btn => {
+          btn.addEventListener('click', () => {
+            lastModeClicked = btn.value;
+            if (modeWarning) {
+              modeWarning.style.display = 'none';
+              modeWarning.textContent = '';
+            }
+          });
+        });
 
         let idxR = 0, idxL = 0;
         const prefillUrl = @json(route('mediciones.captura.prefill'));
@@ -445,12 +467,49 @@
 
         // ---------- Form submit: asegurar hidden de puestos ----------
         form.addEventListener('submit', function(e){
+          if (modeWarning) {
+            modeWarning.style.display = 'none';
+            modeWarning.textContent = '';
+          }
           syncLoc();
           syncAllPuestos();
           if (!hiddenId.value) {
             e.preventDefault();
             inputTxt.focus();
-            help.textContent = '⚠️ Debes elegir una localización de la lista.';
+            help.textContent = 'Debes elegir una localizacion de la lista.';
+            return;
+          }
+          const submitMode = (e.submitter && e.submitter.name === 'mode') ? e.submitter.value : (lastModeClicked || 'create');
+          if (submitMode === 'create') {
+            const newStart = (fechaInicio && fechaInicio.value ? fechaInicio.value.trim() : '');
+            const newEnd   = (fechaFinal && fechaFinal.value ? fechaFinal.value.trim() : '');
+            const oldRuidoStart = (origFechaInicioRuido && origFechaInicioRuido.value ? origFechaInicioRuido.value.trim() : '');
+            const oldRuidoEnd   = (origFechaFinalRuido && origFechaFinalRuido.value ? origFechaFinalRuido.value.trim() : '');
+            const oldLuxStart   = (origFechaInicioLux && origFechaInicioLux.value ? origFechaInicioLux.value.trim() : '');
+            const oldLuxEnd     = (origFechaFinalLux && origFechaFinalLux.value ? origFechaFinalLux.value.trim() : '');
+            const hasRuidoRows  = !!(ruidoBody && ruidoBody.querySelector('tr'));
+            const hasLuxRows    = !!(luxBody && luxBody.querySelector('tr'));
+            const hadRuidoBatch = !!(existingRuidoInput && existingRuidoInput.value.trim());
+            const hadLuxBatch   = !!(existingLuxInput && existingLuxInput.value.trim());
+            const sameRuidoDates = hasRuidoRows && hadRuidoBatch && newStart === oldRuidoStart && newEnd === oldRuidoEnd;
+            const sameLuxDates   = hasLuxRows && hadLuxBatch && newStart === oldLuxStart && newEnd === oldLuxEnd;
+            if (sameRuidoDates || sameLuxDates) {
+              e.preventDefault();
+              if (modeWarning) {
+                const tipos = [];
+                if (sameRuidoDates) tipos.push('ruido');
+                if (sameLuxDates) tipos.push('iluminacion');
+                const tiposTxt = tipos.join(' y ');
+                modeWarning.textContent = `Ya existe un registro de ${tiposTxt} con esas fechas. Usa "Editar existente" o cambia las fechas.`;
+                modeWarning.style.display = 'block';
+              } else if (help) {
+                help.textContent = 'Ya existe un registro con esas fechas. Usa "Editar existente" o cambia las fechas.';
+              }
+              if (fechaInicio) {
+                fechaInicio.focus();
+              }
+              return;
+            }
           }
         });
 
@@ -553,3 +612,4 @@
 </div>   <!-- /.p-6 -->
 
 @endsection
+

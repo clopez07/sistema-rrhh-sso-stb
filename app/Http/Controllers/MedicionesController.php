@@ -1369,26 +1369,30 @@ public function exportIluminacionDesdePlantilla(Request $request)
     $headerRow   = 12;
     $firstData   = 13;
     $perPage     = 30;
-    $colsRange   = 'A:F';
+    $colsRange   = 'A:G';
 
-    $colNo   = 'A';
-    $colZona = 'B';
-    $colProm = 'C';
-    $colLim  = 'D';
-    $colAcc  = 'F';
+    $colNo     = 'A';
+    $colArea   = 'B';
+    $colPunto  = 'C';
+    $colPuesto = 'D';
+    $colProm   = 'E';
+    $colLim    = 'F';
+    $colObs    = 'G';
 
     $emByLoc = DB::table('estandar_iluminacion')
         ->select('id_localizacion', DB::raw('MAX(em) as em'))
         ->groupBy('id_localizacion')
         ->pluck('em', 'id_localizacion');
 
-    $base = DB::table('mediciones_iluminacion')
-        ->whereRaw('YEAR(COALESCE(fecha_realizacion_inicio, fecha_realizacion_final)) = ?', [$year])
-        ->orderBy('departamento')
-        ->orderBy('id_localizacion')
-        ->orderBy('punto_medicion');
+    $base = DB::table('mediciones_iluminacion as m')
+        ->leftJoin('localizacion as loc', 'loc.id_localizacion', '=', 'm.id_localizacion')
+        ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
+        ->orderBy('m.departamento')
+        ->orderBy('m.id_localizacion')
+        ->orderBy('m.punto_medicion');
 
-    $departamentos = (clone $base)->pluck('departamento')->filter()->unique()->values();
+    $departamentos = (clone $base)->pluck('m.departamento')->filter()->unique()->values();
 
     $copyRow = function(Worksheet $sheet, int $srcRow, int $dstRow, string $rangeCols) {
         [$colStart, $colEnd] = explode(':', $rangeCols);
@@ -1410,80 +1414,205 @@ public function exportIluminacionDesdePlantilla(Request $request)
         }
     };
 
+    $dataColumns = ['A','B','C','D','E','F','G'];
+    $highestTplRow = $tplSheet->getHighestRow();
+
+    $footerTemplateRows = [];
+    $detectedFooterStart = null;
+    for ($probe = $firstData; $probe <= $highestTplRow; $probe++) {
+        $cellA = $tplSheet->getCell('A'.$probe)->getValue();
+        $cellATrim = is_string($cellA) ? trim($cellA) : $cellA;
+        if (is_numeric($cellATrim)) {
+            continue;
+        }
+        $rowHasContent = false;
+        foreach ($dataColumns as $col) {
+            $val = $tplSheet->getCell($col.$probe)->getValue();
+            if ($val !== null && $val !== '') {
+                $rowHasContent = true;
+                break;
+            }
+        }
+        if ($rowHasContent) {
+            $detectedFooterStart = $probe;
+            break;
+        }
+    }
+    if ($detectedFooterStart === null) {
+        $detectedFooterStart = $firstData + 30;
+    }
+    for ($probe = $detectedFooterStart; $probe <= $highestTplRow; $probe++) {
+        $rowHasContent = false;
+        foreach ($dataColumns as $col) {
+            $val = $tplSheet->getCell($col.$probe)->getValue();
+            if ($val !== null && $val !== '') {
+                $rowHasContent = true;
+                break;
+            }
+        }
+        if (!$rowHasContent) {
+            if (!empty($footerTemplateRows)) {
+                break;
+            }
+            continue;
+        }
+        $footerTemplateRows[] = $probe;
+    }
+    if (!$footerTemplateRows) {
+        $footerTemplateRows = [$firstData + 30];
+    }
+
+    $footerRowCount = count($footerTemplateRows);
+    $perPage = 30;
+    $footerBaseRow = $firstData + $perPage;
+    $blockHeight   = 1 + $perPage + $footerRowCount;
+
+
     foreach ($departamentos as $dep) {
 
         // ✅ usar helper como método y nombre correcto de variable
         $sheet = $this->ensureSheet($spreadsheet, $dep, $tplSheet);
 
         $rows = (clone $base)
-            ->where('departamento', $dep)   // <-- $dep (no $dept)
+            ->where('m.departamento', $dep)   // <-- $dep (no $dept)
             ->select(
-                'departamento',
-                'nombre_observador',
-                'instrumento',
-                'serie',
-                'marca',
-                'id_localizacion',
-                'punto_medicion',
-                'promedio',
-                'limites_aceptables',
-                'acciones_correctivas',
-                'fecha_realizacion_inicio',
-                'fecha_realizacion_final'
+                'm.departamento',
+                'm.nombre_observador',
+                'm.instrumento',
+                'm.serie',
+                'm.marca',
+                'm.id_localizacion',
+                'loc.localizacion as area_nombre',
+                'm.punto_medicion',
+                'p.puesto_trabajo_matriz as puesto_nombre',
+                'm.promedio',
+                'm.limites_aceptables',
+                'm.observaciones',
+                'm.fecha_realizacion_inicio',
+                'm.fecha_realizacion_final'
             )
             ->get();
 
         if ($rows->isEmpty()) { continue; }
 
-        // ---- Encabezado (C4.., B8, D8)
+        // ---- Encabezado (D4.., B8, E8)
         $minIni = $rows->min('fecha_realizacion_inicio');
         $maxFin = $rows->max('fecha_realizacion_final');
 
-        $sheet->setCellValue('C4', $dep ?? '');
-        $sheet->setCellValue('C5', (string) ($rows->first()->nombre_observador ?? ''));
+        $sheet->setCellValue('D4', $dep ?? '');
+        $sheet->setCellValue('D5', (string) ($rows->first()->nombre_observador ?? ''));
 
-        $rangoFechas = '';
-        if ($minIni || $maxFin) {
-            $ini = $minIni ? (new \DateTime($minIni))->format('d/m/Y') : '';
-            $fin = $maxFin ? (new \DateTime($maxFin))->format('d/m/Y') : '';
-            $rangoFechas = trim($ini.' a '.$fin);
+        $fechaRealizacion = '';
+        if ($minIni && $maxFin) {
+            $ini = (new \DateTime($minIni))->format('d/m/Y');
+            $fin = (new \DateTime($maxFin))->format('d/m/Y');
+            $fechaRealizacion = $minIni === $maxFin ? $ini : $ini.' al '.$fin;
+        } elseif ($minIni) {
+            $fechaRealizacion = (new \DateTime($minIni))->format('d/m/Y');
+        } elseif ($maxFin) {
+            $fechaRealizacion = (new \DateTime($maxFin))->format('d/m/Y');
         }
-        $sheet->setCellValue('C6', $rangoFechas);
+        $sheet->setCellValue('D6', $fechaRealizacion);
 
-        $sheet->setCellValue('C7', (string) ($rows->first()->instrumento ?? ''));
+        $sheet->setCellValue('D7', (string) ($rows->first()->instrumento ?? ''));
         $sheet->setCellValue('B8', (string) ($rows->first()->serie ?? ''));
-        $sheet->setCellValue('D8', (string) ($rows->first()->marca ?? ''));
+        $sheet->setCellValue('E8', (string) ($rows->first()->marca ?? ''));
 
-        // ---- Limpia cuerpo
-        for ($r = $firstData; $r <= $firstData + $perPage + 2000; $r++) {
-            foreach (['A','B','C','D','E','F'] as $c) { $sheet->setCellValue($c.$r, ''); }
+        $footerBaseRows = [];
+
+        foreach ($footerTemplateRows as $idx => $tplRow) {
+
+            $destRow = $footerBaseRow + $idx;
+
+            if ($tplRow !== $destRow) {
+
+                $copyRow($sheet, $tplRow, $destRow, $colsRange);
+
+                foreach ($dataColumns as $col) {
+
+                    $sheet->setCellValue($col.$tplRow, '');
+
+                }
+
+            }
+
+            $footerBaseRows[] = $destRow;
+
         }
+
+
+
+        $totalRows   = $rows->count();
+
+        $pagesNeeded = max(1, (int) ceil($totalRows / $perPage));
+
+
+
+        for ($pageIdx = 0; $pageIdx < $pagesNeeded; $pageIdx++) {
+
+            $offset = $pageIdx * $blockHeight;
+
+            for ($r = 0; $r < $perPage; $r++) {
+
+                $rowNumber = $firstData + $offset + $r;
+
+                foreach ($dataColumns as $col) {
+
+                    $sheet->setCellValue($col.$rowNumber, '');
+
+                }
+
+            }
+
+        }
+
+
 
         // ---- Datos paginados
+
         $i = 0;
+
         foreach ($rows as $rec) {
+
             $page      = intdiv($i, $perPage);
+
             $indexInPg = $i % $perPage;
-            $baseRow   = $headerRow + $page * ($perPage + 1);
-            $hdrRow    = $baseRow;
-            $dstRow    = $baseRow + 1 + $indexInPg;
+
+            $offset    = $page * $blockHeight;
+
+            $headerDst = $headerRow + $offset;
+
+            $dstRow    = $firstData + $offset + $indexInPg;
+
+
 
             if ($indexInPg === 0 && $page > 0) {
-                $copyRow($sheet, $headerRow, $hdrRow, $colsRange);
+
+                $copyRow($sheet, $headerRow, $headerDst, $colsRange);
+
+                foreach ($footerBaseRows as $srcFooterRow) {
+
+                    $copyRow($sheet, $srcFooterRow, $srcFooterRow + $offset, $colsRange);
+
+                }
+
             }
+
             $copyRow($sheet, $firstData, $dstRow, $colsRange);
+
 
             $lim = $rec->limites_aceptables;
             if ($lim === null) {
                 $lim = $emByLoc[$rec->id_localizacion] ?? null;
             }
 
-            $sheet->setCellValue($colNo   . $dstRow, $indexInPg + 1);
-            $sheet->setCellValue($colZona . $dstRow, (string) ($rec->punto_medicion ?? ''));
-            $sheet->setCellValue($colProm . $dstRow, is_null($rec->promedio) ? '' : (float)$rec->promedio);
-            $sheet->setCellValue($colLim  . $dstRow, is_null($lim) ? '' : (float)$lim);
-            // $sheet->setCellValue($colAcc  . $dstRow, (string) ($rec->acciones_correctivas ?? ''));
-
+            $sheet->setCellValue($colNo     . $dstRow, $indexInPg + 1);
+            $sheet->setCellValue($colArea   . $dstRow, (string) ($rec->area_nombre ?? ''));
+            $sheet->setCellValue($colPunto  . $dstRow, (string) ($rec->punto_medicion ?? ''));
+            $sheet->setCellValue($colPuesto . $dstRow, (string) ($rec->puesto_nombre ?? ''));
+            $sheet->setCellValue($colProm   . $dstRow, is_null($rec->promedio) ? '' : (float)$rec->promedio);
+            $sheet->setCellValue($colLim    . $dstRow, is_null($lim) ? '' : (float)$lim);
+            $sheet->setCellValue($colObs    . $dstRow, (string) ($rec->observaciones ?? ''));
             $i++;
         }
     }
