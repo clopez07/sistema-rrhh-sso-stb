@@ -395,44 +395,52 @@ public function exportEmpleado(Request $request)
         ->value('ps.departamento') ?? '';
     \Log::info('[Notif Emp] Dep inferido', ['departamento' => $departamento]);
 
-    // === MEDIDAS por riesgo (filtradas por PTM) - subconsulta RAW (súper compatible)
-    $subMedidas = DB::raw("
-        (
-            SELECT
-                mrp.id_riesgo,
-                GROUP_CONCAT(DISTINCT epp.equipo      ORDER BY epp.equipo      SEPARATOR ', ') AS epps,
-                GROUP_CONCAT(DISTINCT c.capacitacion  ORDER BY c.capacitacion  SEPARATOR ', ') AS caps,
-                GROUP_CONCAT(DISTINCT s.senalizacion  ORDER BY s.senalizacion  SEPARATOR ', ') AS senal,
-                GROUP_CONCAT(DISTINCT o.otras_medidas ORDER BY o.otras_medidas SEPARATOR ', ') AS otras
-            FROM medidas_riesgo_puesto mrp
-            LEFT JOIN epp            ON epp.id_epp            = mrp.id_epp
-            LEFT JOIN capacitacion c ON c.id_capacitacion     = mrp.id_capacitacion
-            LEFT JOIN senalizacion s ON s.id_senalizacion     = mrp.id_senalizacion
-            LEFT JOIN otras_medidas o ON o.id_otras_medidas   = mrp.id_otras_medidas
-            WHERE mrp.id_puesto_trabajo_matriz = {$ptmId}
-            GROUP BY mrp.id_riesgo
-        ) as m
-    ");
+    // === MEDIDAS por riesgo (filtradas por PTM) - subconsulta con builder
+    $siValues = ['si', 'sí', 'si.', 'sí.'];
+
+    $medidasQuery = DB::table('medidas_riesgo_puesto as mrp')
+        ->join('riesgo_valor as rv2', function ($join) use ($ptmId) {
+            $join->on('rv2.id_riesgo', '=', 'mrp.id_riesgo')
+                ->where('rv2.id_puesto_trabajo_matriz', '=', $ptmId);
+        })
+        ->leftJoin('epp', 'epp.id_epp', '=', 'mrp.id_epp')
+        ->leftJoin('capacitacion as c', 'c.id_capacitacion', '=', 'mrp.id_capacitacion')
+        ->leftJoin('senalizacion as s', 's.id_senalizacion', '=', 'mrp.id_senalizacion')
+        ->leftJoin('otras_medidas as o', 'o.id_otras_medidas', '=', 'mrp.id_otras_medidas')
+        ->whereIn(DB::raw('LOWER(TRIM(rv2.valor))'), $siValues)
+        ->groupBy('mrp.id_riesgo')
+        ->selectRaw(
+            "mrp.id_riesgo,
+            GROUP_CONCAT(DISTINCT epp.equipo ORDER BY epp.equipo SEPARATOR ', ') AS epps,
+            GROUP_CONCAT(DISTINCT c.capacitacion ORDER BY c.capacitacion SEPARATOR ', ') AS caps,
+            GROUP_CONCAT(DISTINCT s.senalizacion ORDER BY s.senalizacion SEPARATOR ', ') AS senal,
+            GROUP_CONCAT(DISTINCT o.otras_medidas ORDER BY o.otras_medidas SEPARATOR ', ') AS otras"
+        );
 
     // === RIESGOS 'SI' del PTM
     $riesgos = DB::table('riesgo_valor as rv')
         ->join('riesgo as r', 'r.id_riesgo', '=', 'rv.id_riesgo')
         ->join('tipo_riesgo as tr', 'tr.id_tipo_riesgo', '=', 'r.id_tipo_riesgo')
-        ->leftJoin($subMedidas, 'm.id_riesgo', '=', 'r.id_riesgo')
+        ->leftJoinSub($medidasQuery, 'm', 'm.id_riesgo', '=', 'r.id_riesgo')
+        ->leftJoin('evaluacion_riesgo as er', function ($join) use ($ptmId) {
+            $join->on('er.id_riesgo', '=', 'rv.id_riesgo')
+                ->where('er.id_puesto_trabajo_matriz', '=', $ptmId);
+        })
+        ->leftJoin('consecuencia as cons', 'cons.id_consecuencia', '=', 'er.id_consecuencia')
         ->where('rv.id_puesto_trabajo_matriz', $ptmId)
-        ->whereIn(DB::raw('LOWER(TRIM(rv.valor))'), ['si','sí','si.','sí.'])
+        ->whereIn(DB::raw('LOWER(TRIM(rv.valor))'), $siValues)
         ->orderBy('tr.tipo_riesgo')
         ->orderBy('r.nombre_riesgo')
         ->get([
             'r.nombre_riesgo',
-            'r.efecto_salud',
+            DB::raw("COALESCE(NULLIF(TRIM(cons.consecuencia), ''), NULLIF(TRIM(r.efecto_salud), ''), '') as efecto_salud"),
             DB::raw("COALESCE(NULLIF(TRIM(CONCAT_WS(' | ', NULLIF(m.epps,''), NULLIF(m.caps,''), NULLIF(m.senal,''), NULLIF(m.otras,''))), ''), 'No Requiere') as medidas_requeridas"),
         ]);
 
     \Log::info('[Notif Emp] Riesgos encontrados', ['count' => $riesgos->count()]);
 
     if (method_exists($riesgos, 'unique')) {
-        $riesgos = $riesgos->unique(fn($x) => $x->nombre_riesgo.'|'.($x->efecto_salud ?? ''))->values();
+        $riesgos = $riesgos->unique(fn($x) => $x->nombre_riesgo)->values();
     }
 
     // === Plantilla
@@ -472,7 +480,6 @@ public function exportEmpleado(Request $request)
         if ($rowRisk > $maxRows || $rowMed > $maxRows || $rowEffect > $maxRows) break;
         $sheet->setCellValue('A'.$rowRisk,   (string)($r->nombre_riesgo ?? ''));
         $sheet->setCellValue('C'.$rowMed,    (string)($r->medidas_requeridas ?? ''));
-        $sheet->setCellValue('B'.$rowEffect, (string)($r->efecto_salud ?? ''));
         $rowRisk++; $rowMed++; $rowEffect++;
     }
 
