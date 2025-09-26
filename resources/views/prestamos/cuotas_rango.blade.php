@@ -46,6 +46,13 @@
         </div>
     @endif
 
+    <form action="{{ route('prestamos.ajustes.preview') }}" method="post" enctype="multipart/form-data" class="mt-4 space-y-3">
+        @csrf
+        <input type="file" name="archivo" accept=".xlsx,.xls" required class="block">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded">Previsualizar ajustes</button>
+    </form>
+
+
     <form action="{{ route('cuotas.rango') }}" method="GET" class="mt-4 grid gap-4 md:grid-cols-4">
         <div>
             <label for="fecha_inicio" class="block mb-1 text-sm font-medium text-gray-700">Fecha inicio</label>
@@ -90,6 +97,14 @@
                 <p class="text-lg font-semibold text-amber-600">{{ number_format($resumen['pendientes']) }}</p>
             </div>
         </div>
+    @endif
+
+    @if ($ajustePlan)
+        @include('prestamos.partials.ajustes-preview', [
+            'ajustePlan' => $ajustePlan,
+            'ajusteToken' => $ajusteToken,
+            'filtros' => $filtros ?? [],
+        ])
     @endif
 
     @if ($cuotas)

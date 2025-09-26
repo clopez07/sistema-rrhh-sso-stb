@@ -40,12 +40,6 @@
   </div>
 @endif
 
-<form action="{{ route('prestamos.ajustes.preview') }}" method="post" enctype="multipart/form-data" class="space-y-3">
-  @csrf
-  <input type="file" name="archivo" accept=".xlsx,.xls" required class="block">
-  <button class="px-4 py-2 bg-blue-600 text-white rounded">Previsualizar ajustes</button>
-</form>
-
             <form action="{{ route('cuotas') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
         <div class="relative w-full">
             <input

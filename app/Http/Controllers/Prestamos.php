@@ -492,10 +492,32 @@ public function empleadosprestamo(Request $request)
             }
         }
 
+        $previewToken = $request->input('preview_token');
+        $ajustePlan = null;
+
+        if ($previewToken) {
+            $ajustePlan = session('ajustes_prestamos.preview.' . $previewToken);
+            if ($ajustePlan && (!isset($ajustePlan['inicio']) || !isset($ajustePlan['fin']))) {
+                $ajustePlan = null;
+            } elseif ($ajustePlan && (($ajustePlan['inicio'] ?? null) !== $fechaInicioInput || ($ajustePlan['fin'] ?? null) !== $fechaFinInput)) {
+                $ajustePlan = null;
+            }
+        }
+
+        $filtros = [
+            'fecha_inicio' => $fechaInicioInput,
+            'fecha_fin' => $fechaFinInput,
+            'estado' => $estado,
+            'search' => $search,
+        ];
+
         return view('prestamos.cuotas_rango', [
             'cuotas' => $cuotas,
             'resumen' => $resumen,
             'errorMensaje' => $errorMensaje,
+            'ajustePlan' => $ajustePlan,
+            'ajusteToken' => $ajustePlan ? $previewToken : null,
+            'filtros' => $filtros,
         ]);
     }
 

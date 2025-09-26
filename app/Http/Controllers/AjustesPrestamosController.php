@@ -36,16 +36,23 @@ class AjustesPrestamosController extends Controller
         $token = (string) Str::uuid();
         session([self::SESSION_PREFIX . $token => $plan]);
 
-        return view('prestamos.ajustes_preview', [
-            'plan' => $plan,
-            'token' => $token,
-        ]);
+        return redirect()->route('cuotas.rango', [
+            'fecha_inicio' => $plan['inicio'],
+            'fecha_fin' => $plan['fin'],
+            'estado' => 'todas',
+            'preview_token' => $token,
+        ])->with('ajustes_preview_token', $token);
     }
 
     public function commitExcel(Request $request)
     {
         $data = $request->validate([
             'token' => ['required', 'string'],
+            'redirect_route' => ['nullable', 'string'],
+            'redirect_fecha_inicio' => ['nullable', 'string'],
+            'redirect_fecha_fin' => ['nullable', 'string'],
+            'redirect_estado' => ['nullable', 'string'],
+            'redirect_search' => ['nullable', 'string'],
         ]);
 
         $token = $data['token'];
@@ -61,6 +68,23 @@ class AjustesPrestamosController extends Controller
 
         $movimientos = $plan['counts']['acciones_aplicables'] ?? 0;
         $rango = "{$plan['inicio']} al {$plan['fin']}";
+
+        $redirectRoute = $data['redirect_route'] ?? null;
+
+        if ($redirectRoute === 'cuotas.rango') {
+            $params = [
+                'fecha_inicio' => $data['redirect_fecha_inicio'] ?? $plan['inicio'],
+                'fecha_fin' => $data['redirect_fecha_fin'] ?? $plan['fin'],
+                'estado' => $data['redirect_estado'] ?? 'todas',
+            ];
+
+            if (!empty($data['redirect_search'])) {
+                $params['search'] = $data['redirect_search'];
+            }
+
+            return redirect()->route('cuotas.rango', $params)
+                ->with('success', "Ajustes aplicados para el rango {$rango}. Movimientos ejecutados: {$movimientos}.");
+        }
 
         return redirect()->route('cuotas')
             ->with('success', "Ajustes aplicados para el rango {$rango}. Movimientos ejecutados: {$movimientos}.");
@@ -842,3 +866,4 @@ class AjustesPrestamosController extends Controller
         return [null, null, null, null];
     }
 }
+
