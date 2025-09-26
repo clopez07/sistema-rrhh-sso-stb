@@ -131,6 +131,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/cuotas', [Prestamos::class, 'cuotas']);
             // Ruta para B�squeda
     Route::get('/cuotas', [Prestamos::class, 'cuotas'])->name('cuotas');
+    Route::get('/cuotas/rango', [Prestamos::class, 'cuotasPorRango'])->name('cuotas.rango');
     Route::post('/cuotas/import-ajustes', [Prestamos::class, 'importAjustesCuotas'])->name('cuotas.import');
     Route::put('/cuotas/{id}', [Prestamos::class, 'updateCuota'])->name('cuotas.update');
     Route::get('/cuotas-especiales', [Prestamos::class, 'cuotasEspeciales'])->name('cuotas.especiales');

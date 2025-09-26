@@ -393,6 +393,112 @@ public function empleadosprestamo(Request $request)
         return view('prestamos.cuotas', compact('cuotas', 'planilla'));
     }
 
+    public function cuotasPorRango(Request $request)
+    {
+        $fechaInicioInput = $request->input('fecha_inicio');
+        $fechaFinInput = $request->input('fecha_fin');
+        $estado = $request->input('estado', 'todas');
+        $search = trim((string) $request->input('search', ''));
+
+        if (!in_array($estado, ['todas', 'pagadas', 'pendientes'], true)) {
+            $estado = 'todas';
+        }
+
+        $cuotas = null;
+        $resumen = null;
+        $errorMensaje = null;
+
+        if ($fechaInicioInput || $fechaFinInput) {
+            if (!$fechaInicioInput || !$fechaFinInput) {
+                $errorMensaje = 'Debe seleccionar la fecha inicial y la final.';
+            } else {
+                try {
+                    $inicio = Carbon::parse($fechaInicioInput)->startOfDay();
+                    $fin = Carbon::parse($fechaFinInput)->endOfDay();
+                } catch (\Throwable $th) {
+                    $errorMensaje = 'Formato de fecha no válido.';
+                }
+
+                if (!$errorMensaje && $inicio->gt($fin)) {
+                    $errorMensaje = 'La fecha inicial no puede ser mayor que la final.';
+                }
+
+                if (!$errorMensaje) {
+                    $builder = DB::table('historial_cuotas as hc')
+                        ->join('prestamo as p', 'hc.id_prestamo', '=', 'p.id_prestamo')
+                        ->join('planilla as pla', 'p.id_planilla', '=', 'pla.id_planilla')
+                        ->join('empleado as emp', 'p.id_empleado', '=', 'emp.id_empleado')
+                        ->whereBetween('hc.fecha_programada', [$inicio->toDateString(), $fin->toDateString()]);
+
+                    if ($search !== '') {
+                        $builder->where(function ($query) use ($search) {
+                            $query->where('emp.nombre_completo', 'like', "%{$search}%")
+                                  ->orWhere('emp.codigo_empleado', 'like', "%{$search}%")
+                                  ->orWhere('p.num_prestamo', 'like', "%{$search}%");
+                        });
+                    }
+
+                    if ($estado === 'pagadas') {
+                        $builder->where('hc.pagado', 1);
+                    } elseif ($estado === 'pendientes') {
+                        $builder->where('hc.pagado', 0);
+                    }
+
+                    $statsQuery = clone $builder;
+                    $stats = $statsQuery
+                        ->selectRaw('COUNT(*) as total')
+                        ->selectRaw('SUM(CASE WHEN hc.pagado = 1 THEN 1 ELSE 0 END) as pagadas')
+                        ->selectRaw('SUM(CASE WHEN hc.pagado = 0 THEN 1 ELSE 0 END) as pendientes')
+                        ->first();
+
+                    $resumen = [
+                        'total' => (int) ($stats->total ?? 0),
+                        'pagadas' => (int) ($stats->pagadas ?? 0),
+                        'pendientes' => (int) ($stats->pendientes ?? 0),
+                    ];
+
+                    $cuotas = $builder
+                        ->select(
+                            'hc.id_historial_cuotas',
+                            'p.id_prestamo',
+                            'p.num_prestamo',
+                            'p.fecha_deposito_prestamo',
+                            'hc.fecha_pago_real',
+                            'emp.nombre_completo',
+                            'emp.identidad',
+                            'emp.codigo_empleado',
+                            'hc.num_cuota',
+                            'hc.fecha_programada',
+                            'hc.abono_capital',
+                            'hc.abono_intereses',
+                            'hc.cuota_mensual',
+                            'hc.cuota_quincenal',
+                            'hc.saldo_pagado',
+                            'hc.saldo_restante',
+                            'hc.interes_pagado',
+                            'hc.interes_restante',
+                            'hc.pagado',
+                            'hc.observaciones'
+                        )
+                        ->orderBy('hc.fecha_programada')
+                        ->paginate(25)
+                        ->appends([
+                            'fecha_inicio' => $fechaInicioInput,
+                            'fecha_fin' => $fechaFinInput,
+                            'estado' => $estado,
+                            'search' => $search,
+                        ]);
+                }
+            }
+        }
+
+        return view('prestamos.cuotas_rango', [
+            'cuotas' => $cuotas,
+            'resumen' => $resumen,
+            'errorMensaje' => $errorMensaje,
+        ]);
+    }
+
     public function cuotasEspeciales(Request $request)
     {
         $cuotas = DB::table('historial_cuotas as hc')
@@ -778,4 +884,3 @@ public function empleadosprestamo(Request $request)
         ]);
     }
 }
-
