@@ -263,13 +263,21 @@
             </div>
           </li>
 <li class="mt-4 px-2 text-xs font-semibold tracking-wide text-slate-500">Consultar Información</li>
-          <!-- Ver Información -->
+                                        <!-- Ver Informacion -->
           <li>
             <a href="/verificacion" class="group flex items-center gap-3 rounded-xl px-3 py-2 {{ $activeLink('verificacion*') }}">
               <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"/>
               </svg>
-              <span class="text-sm font-medium">Ver Información</span>
+              <span class="text-sm font-medium">Ver Informacion</span>
+            </a>
+          </li>
+          <li>
+            <a href="{{ route('riesgos.analisis') }}" class="group flex items-center gap-3 rounded-xl px-3 py-2 {{ $activeLink('analisis-riesgos*') }}">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 19h16M7 11v8m5-14v14m5-6v6M6 5h12"/>
+              </svg>
+              <span class="text-sm font-medium">Analisis de Riesgos</span>
             </a>
           </li>
         </ul>

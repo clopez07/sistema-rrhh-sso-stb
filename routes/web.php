@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Capacitaciones;
@@ -26,6 +26,7 @@ Use App\Http\Controllers\MatrizQuimicosController;
 Use App\Http\Controllers\DetallesRiesgoImportController;
 use App\Http\Controllers\EppObligatoriosConsultaController;
 use App\Http\Controllers\VerificacionRiesgosController;
+use App\Http\Controllers\AnalisisRiesgosPuestoController;
 use App\Http\Controllers\MatrizPuestosEppController;
 use App\Http\Controllers\MatrizPuestosCapacitacionController;
 use App\Http\Controllers\ComparacionPuestosController;
@@ -402,6 +403,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/detalles-riesgo/import', [DetallesRiesgoImportController::class, 'showImportForm'])->name('detalles_riesgo.import.form');
     Route::post('/detalles-riesgo/import', [DetallesRiesgoImportController::class, 'import'])->name('detalles_riesgo.import');
+
+    Route::get('/analisis-riesgos', [AnalisisRiesgosPuestoController::class, 'index'])
+        ->name('riesgos.analisis');
 
     Route::get('/verificacion', [VerificacionRiesgosController::class, 'index'])
     ->name('riesgos.verificacion');
