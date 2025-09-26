@@ -86,10 +86,20 @@ class NotificacionRiesgoExcelTemplateController extends Controller
         }
 
         $baseSheet = $spreadsheet->getSheet(0);
-        for ($i = 1; $i < $chunks->count(); $i++) {
-            $clone = $baseSheet->copy();
-            $clone->setTitle('Notificación ' . ($i + 1));
-            $spreadsheet->addSheet($clone);
+        $baseTitle = $baseSheet->getTitle();
+
+        if ($chunks->count() > 1) {
+            $reader = IOFactory::createReader('Xlsx');
+            $reader->setIncludeCharts(true);
+
+            for ($i = 1; $i < $chunks->count(); $i++) {
+                $externalSpreadsheet = $reader->load($templatePath);
+                $cloneSheet = $externalSpreadsheet->getSheet(0);
+                $cloneSheet->setTitle($this->buildSheetTitle($baseTitle, $i + 1));
+                $spreadsheet->addExternalSheet($cloneSheet);
+                $externalSpreadsheet->disconnectWorksheets();
+                unset($externalSpreadsheet);
+            }
         }
 
         $globalNumber = 1;
@@ -148,6 +158,28 @@ class NotificacionRiesgoExcelTemplateController extends Controller
     {
         // Escribir directamente en C13
         $sheet->setCellValue('C13', $puesto);
+    }
+
+    private function buildSheetTitle(string $baseTitle, int $position): string
+    {
+        if ($position <= 1) {
+            $cleanBase = trim($baseTitle);
+            return $cleanBase === '' ? 'Hoja' : $cleanBase;
+        }
+
+        $cleanBase = trim($baseTitle) === '' ? 'Hoja' : trim($baseTitle);
+        $suffix = ' (' . $position . ')';
+        $maxLength = max(1, 31 - strlen($suffix));
+
+        if (function_exists('mb_strlen')) {
+            if (mb_strlen($cleanBase) > $maxLength) {
+                $cleanBase = mb_substr($cleanBase, 0, $maxLength);
+            }
+        } elseif (strlen($cleanBase) > $maxLength) {
+            $cleanBase = substr($cleanBase, 0, $maxLength);
+        }
+
+        return $cleanBase . $suffix;
     }
 
     /**
