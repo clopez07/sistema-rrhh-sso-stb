@@ -138,7 +138,7 @@
               <a href="/puestos" class="flex items-center gap-3 rounded-lg px-3 py-2 {{ $activeLink('puestos*') }}">
                 <span class="text-sm">Puestos de Trabajo</span>
               </a>
-              <a href="/quimicos" class="flex items-center gap-3 rounded-lg px-3 py-2 {{ $activeLink('quimicos*') }}">
+              <a href="/quimicos" class="flex items-center gap-3 rounded-lg px-3 py-2">
                 <span class="text-sm">Inventario de Químicos</span>
               </a>
               <a href="/medidasriesgo" class="flex items-center gap-3 rounded-lg px-3 py-2 {{ $activeLink('medidasriesgo*') }}">

@@ -300,9 +300,9 @@ public function reporteIluminacion(\Illuminate\Http\Request $request)
         \DB::table('mediciones_iluminacion as m')
             ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')
             ->pluck('y')
-    )->filter(fn($v) => !is_null($v))
+    )->filter(function ($v) { return !is_null($v); })
      ->map(fn($v) => (int) $v)
-     ->filter(fn($v) => $v > 0)
+     ->filter(function ($v) { return $v > 0; })
      ->unique()
      ->sortDesc()
      ->values();
@@ -417,9 +417,9 @@ public function reporteRuido(\Illuminate\Http\Request $request)
         \DB::table('mediciones_ruido as m')
             ->selectRaw('DISTINCT YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) as y')
             ->pluck('y')
-    )->filter(fn($v) => !is_null($v))
+    )->filter(function ($v) { return !is_null($v); })
      ->map(fn($v) => (int) $v)
-     ->filter(fn($v) => $v > 0)
+     ->filter(function ($v) { return $v > 0; })
      ->unique()
      ->sortDesc()
      ->values();
@@ -1641,46 +1641,25 @@ public function exportRuidoDesdePlantilla(Request $request)
 {
     $year = $request->integer('year') ?: (int) now()->year;
 
-    // 1) Cargar plantilla
     $tplPath = storage_path('app/public/medicion_ruido.xlsx');
     if (!is_file($tplPath)) {
-        abort(404, 'No se encontró la plantilla medicion_ruido.xlsx en storage/app/public');
+        abort(404, 'No se encontr� la plantilla medicion_ruido.xlsx en storage/app/public');
     }
     $spreadsheet = IOFactory::load($tplPath);
     /** @var Worksheet $tplSheet */
     $tplSheet = $spreadsheet->getSheetByName('Plantilla') ?? $spreadsheet->getActiveSheet();
 
-    // Parámetros de la tabla/formato ya existentes en la plantilla
-    $headerRow = 14;       // fila del encabezado
-    $firstData = 15;       // primera fila de datos
-    $perPage   = 30;       // ítems por bloque
-    $colsRange = 'A:H';    // columnas que se copian para encabezado/filas
+    $headerRows     = [11, 12, 13];
+    $headerRowStart = $headerRows[0];
+    $headerRowEnd   = $headerRows[count($headerRows) - 1];
+    $headerHeight   = $headerRowEnd - $headerRowStart + 1;
+    $firstData      = 14;
+    $perPage        = 30;
+    $colsRange      = 'A:J';
 
-    // Mapeo de columnas (A..H): No., Punto, Máx, Mín, Prom, NRE, Límite, Observaciones
-    $colNo   = 'A';
-    $colPto  = 'B';
-    $colMax  = 'C';
-    $colMin  = 'D';
-    $colProm = 'E';
-    $colNRE  = 'F';   // <-- ya no hay NRR en la hoja
-    $colLim  = 'G';
-    $colobs  = 'H';
+    $dataColumns = ['A','B','C','D','E','F','G','H','I','J'];
 
-    // 2) Traer mediciones del año + área del puesto
-    $base = DB::table('mediciones_ruido as m')
-        ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
-        ->leftJoin('area as a', 'a.id_area', '=', 'p.id_area')
-        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
-        ->orderBy('m.departamento')
-        ->orderBy('m.id_localizacion')
-        ->orderBy('m.punto_medicion');
-
-    // Departamentos (uno por hoja)
-    $departamentos = (clone $base)->pluck('m.departamento')->filter()->unique()->values();
-
-    // Helper para copiar estilos/formatos de una fila
-    $copyRow = function(Worksheet $sheet, int $srcRow, int $dstRow, string $rangeCols)
-    {
+    $copyRow = function(Worksheet $sheet, int $srcRow, int $dstRow, string $rangeCols) {
         [$colStart, $colEnd] = explode(':', $rangeCols);
         for ($col = $colStart; $col <= $colEnd; $col++) {
             $src = $col.$srcRow;
@@ -1694,13 +1673,13 @@ public function exportRuidoDesdePlantilla(Request $request)
             );
         }
 
-        // Altura y merges de esa fila
         $sheet->getRowDimension($dstRow)->setRowHeight(
             $sheet->getRowDimension($srcRow)->getRowHeight()
         );
+
         foreach ($sheet->getMergeCells() as $merge) {
             [$mStart, $mEnd] = explode(':', $merge);
-            if (preg_match('/([A-Z]+)(\d+)/', $mStart, $m1) && (int)$m1[2] === $srcRow) {
+            if (preg_match('/([A-Z]+)(\d+)/', $mStart, $m1) && (int) $m1[2] === $srcRow) {
                 if (preg_match('/([A-Z]+)(\d+)/', $mEnd, $m2)) {
                     $sheet->mergeCells($m1[1].$dstRow.':'.$m2[1].$dstRow);
                 }
@@ -1708,10 +1687,71 @@ public function exportRuidoDesdePlantilla(Request $request)
         }
     };
 
-    $first = true; // la primera hoja reutiliza la plantilla original
+    $highestTplRow = $tplSheet->getHighestRow();
+    $footerTemplateRows = [];
+    $detectedFooterStart = null;
+    for ($probe = $firstData; $probe <= $highestTplRow; $probe++) {
+        $cellA = $tplSheet->getCell('A'.$probe)->getValue();
+        $cellATrim = is_string($cellA) ? trim($cellA) : $cellA;
+        $isFormula = is_string($cellATrim) && strlen($cellATrim) > 0 && $cellATrim[0] === '=';
+        if (is_numeric($cellATrim) || $isFormula) {
+            continue;
+        }
+        $rowHasContent = false;
+        foreach ($dataColumns as $col) {
+            $val = $tplSheet->getCell($col.$probe)->getValue();
+            if ($val !== null && $val !== '') {
+                $rowHasContent = true;
+                break;
+            }
+        }
+        if ($rowHasContent) {
+            $detectedFooterStart = $probe;
+            break;
+        }
+    }
+    if ($detectedFooterStart === null) {
+        $detectedFooterStart = $firstData + $perPage;
+    }
+    for ($probe = $detectedFooterStart; $probe <= $highestTplRow; $probe++) {
+        $rowHasContent = false;
+        foreach ($dataColumns as $col) {
+            $val = $tplSheet->getCell($col.$probe)->getValue();
+            if ($val !== null && $val !== '') {
+                $rowHasContent = true;
+                break;
+            }
+        }
+        if (!$rowHasContent) {
+            if (!empty($footerTemplateRows)) {
+                break;
+            }
+            continue;
+        }
+        $footerTemplateRows[] = $probe;
+    }
+    if (!$footerTemplateRows) {
+        $footerTemplateRows = [$firstData + $perPage];
+    }
+
+    $footerRowCount = count($footerTemplateRows);
+    $footerBaseRow  = $firstData + $perPage;
+    $blockHeight    = $headerHeight + $perPage + $footerRowCount;
+
+    $base = DB::table('mediciones_ruido as m')
+        ->leftJoin('localizacion as loc', 'loc.id_localizacion', '=', 'm.id_localizacion')
+        ->leftJoin('puesto_trabajo_matriz as p', 'p.id_puesto_trabajo_matriz', '=', 'm.id_puesto_trabajo_matriz')
+        ->leftJoin('area as a', 'a.id_area', '=', 'p.id_area')
+        ->whereRaw('YEAR(COALESCE(m.fecha_realizacion_inicio, m.fecha_realizacion_final)) = ?', [$year])
+        ->orderBy('m.departamento')
+        ->orderBy('m.id_localizacion')
+        ->orderBy('m.punto_medicion');
+
+    $departamentos = (clone $base)->pluck('m.departamento')->filter()->unique()->values();
+
+    $firstSheet = true;
 
     foreach ($departamentos as $dept) {
-        // Filas del depto
         $rows = (clone $base)
             ->where('m.departamento', $dept)
             ->select(
@@ -1720,7 +1760,10 @@ public function exportRuidoDesdePlantilla(Request $request)
                 'm.instrumento',
                 'm.serie',
                 'm.marca',
+                'm.nrr',
                 'm.id_localizacion',
+                'loc.localizacion as localizacion_nombre',
+                'p.puesto_trabajo_matriz as puesto_nombre',
                 'm.punto_medicion',
                 'm.nivel_maximo',
                 'm.nivel_minimo',
@@ -1728,7 +1771,7 @@ public function exportRuidoDesdePlantilla(Request $request)
                 'm.limites_aceptables',
                 'm.fecha_realizacion_inicio',
                 'm.fecha_realizacion_final',
-                'm.observaciones',             // <-- para la col H
+                'm.observaciones',
                 'a.area as area_nombre'
             )
             ->get();
@@ -1737,87 +1780,115 @@ public function exportRuidoDesdePlantilla(Request $request)
             continue;
         }
 
-        // Hoja para el departamento (sin colisión de nombres)
-        $sheet = $first ? $tplSheet : $this->ensureSheet($spreadsheet, (string)$dept, $tplSheet);
-        if ($first) { // renombra la primera si sigue llamándose 'Plantilla'
-            $sheet->setTitle($this->xlTitle((string)$dept));
-            $first = false;
+        $sheet = $firstSheet ? $tplSheet : $this->ensureSheet($spreadsheet, (string) $dept, $tplSheet);
+        if ($firstSheet) {
+            $sheet->setTitle($this->xlTitle((string) $dept));
+            $firstSheet = false;
         }
 
-        // ==== Encabezados (tus nuevas coordenadas) ====
         $minIni = $rows->min('fecha_realizacion_inicio');
         $maxFin = $rows->max('fecha_realizacion_final');
-        $rangoFechas = '';
-        if ($minIni || $maxFin) {
-            $ini = $minIni ? (new \DateTime($minIni))->format('d/m/Y') : '';
-            $fin = $maxFin ? (new \DateTime($maxFin))->format('d/m/Y') : '';
-            $rangoFechas = trim($ini.' a '.$fin);
+
+        $sheet->setCellValue('D4', (string) ($dept ?? ''));
+        $sheet->setCellValue('D5', (string) ($rows->first()->nombre_observador ?? ''));
+
+        $fechaRealizacion = '';
+        if ($minIni && $maxFin) {
+            $ini = (new \DateTime($minIni))->format('d/m/Y');
+            $fin = (new \DateTime($maxFin))->format('d/m/Y');
+            $fechaRealizacion = $minIni === $maxFin ? $ini : $ini.' al '.$fin;
+        } elseif ($minIni) {
+            $fechaRealizacion = (new \DateTime($minIni))->format('d/m/Y');
+        } elseif ($maxFin) {
+            $fechaRealizacion = (new \DateTime($maxFin))->format('d/m/Y');
+        }
+        $sheet->setCellValue('D6', $fechaRealizacion);
+
+        $sheet->setCellValue('D7', (string) ($rows->first()->instrumento ?? ''));
+        $sheet->setCellValue('B8', (string) ($rows->first()->serie ?? ''));
+        $sheet->setCellValue('E8', (string) ($rows->first()->marca ?? ''));
+
+        $headerNrr = null;
+        foreach ($rows as $metaRow) {
+            if ($metaRow->nrr !== null && $metaRow->nrr !== '') {
+                $headerNrr = $metaRow->nrr;
+                break;
+            }
+        }
+        $sheet->setCellValue('B9', $headerNrr !== null ? $headerNrr : '');
+
+        $footerBaseRows = [];
+        foreach ($footerTemplateRows as $idx => $tplRow) {
+            $destRow = $footerBaseRow + $idx;
+            if ($tplRow !== $destRow) {
+                $copyRow($sheet, $tplRow, $destRow, $colsRange);
+            }
+            $footerBaseRows[] = $destRow;
         }
 
-        $sheet->setCellValue('C5', (string)$dept);
-        $sheet->setCellValue('C6', (string)($rows->first()->nombre_observador ?? ''));
-        $sheet->setCellValue('C7', $rangoFechas);
-        $sheet->setCellValue('C8', (string)($rows->first()->instrumento ?? ''));
-        $sheet->setCellValue('B9', (string)($rows->first()->serie ?? ''));
-        $sheet->setCellValue('D9', (string)($rows->first()->marca ?? ''));
+        $totalRows   = $rows->count();
+        $pagesNeeded = max(1, (int) ceil($totalRows / $perPage));
 
-        // Limpia cuerpo (por si la plantilla trae algo)
-        for ($r = $firstData; $r <= $firstData + $perPage + 2000; $r++) {
-            foreach (range('A', 'H') as $c) {
-                $sheet->setCellValue($c.$r, '');
+        for ($pageIdx = 0; $pageIdx < $pagesNeeded; $pageIdx++) {
+            $offset = $pageIdx * $blockHeight;
+            for ($r = 0; $r < $perPage; $r++) {
+                $rowNumber = $firstData + $offset + $r;
+                foreach ($dataColumns as $col) {
+                    $sheet->setCellValue($col.$rowNumber, '');
+                }
             }
         }
 
-        // ==== Escribir con paginado
         $i = 0;
         foreach ($rows as $rec) {
-            // Calcular promedio, límite, nrr, nre
-            $max = is_numeric($rec->nivel_maximo)  ? (float)$rec->nivel_maximo  : null;
-            $min = is_numeric($rec->nivel_minimo)  ? (float)$rec->nivel_minimo  : null;
+            $page      = intdiv($i, $perPage);
+            $indexInPg = $i % $perPage;
+            $offset    = $page * $blockHeight;
+            $dstRow    = $firstData + $offset + $indexInPg;
+
+            if ($indexInPg === 0 && $page > 0) {
+                foreach ($headerRows as $srcHeaderRow) {
+                    $copyRow($sheet, $srcHeaderRow, $srcHeaderRow + $offset, $colsRange);
+                }
+                foreach ($footerBaseRows as $srcFooterRow) {
+                    $copyRow($sheet, $srcFooterRow, $srcFooterRow + $offset, $colsRange);
+                }
+            }
+
+            $copyRow($sheet, $firstData, $dstRow, $colsRange);
+
+            $max = is_numeric($rec->nivel_maximo)  ? (float) $rec->nivel_maximo  : null;
+            $min = is_numeric($rec->nivel_minimo)  ? (float) $rec->nivel_minimo  : null;
             $prm = (!is_null($max) && !is_null($min))
-                    ? ($max + $min) / 2.0
-                    : (is_numeric($rec->nivel_promedio) ? (float)$rec->nivel_promedio : null);
+                ? ($max + $min) / 2.0
+                : (is_numeric($rec->nivel_promedio) ? (float) $rec->nivel_promedio : null);
 
-            $lim = is_numeric($rec->limites_aceptables) ? (float)$rec->limites_aceptables : 80.0;
+            $lim = is_numeric($rec->limites_aceptables) ? (float) $rec->limites_aceptables : 80.0;
 
-            // NRR solo para el cálculo de NRE (no se imprime)
-            $nrr = null;
+            $nrr = is_numeric($rec->nrr) ? (float) $rec->nrr : null;
+            if ($nrr === null && $prm !== null && $prm > $lim) {
+                $nrr = (strcasecmp((string) ($rec->area_nombre ?? ''), 'Area Interna') === 0) ? 13.5 : 11.24;
+            }
             $nre = $prm;
-            if ($prm !== null && $prm > $lim) {
-                $nrr = (strcasecmp((string)$rec->area_nombre, 'Area Interna') === 0) ? 13.5 : 11.24;
+            if ($prm !== null && $nrr !== null) {
                 $nre = $prm - $nrr;
             }
 
-            // Paginado (30 por bloque)
-            $page      = intdiv($i, $perPage);
-            $indexInPg = $i % $perPage;
-            $baseRow   = $headerRow + $page * ($perPage + 1);
-            $hdrRow    = $baseRow;
-            $dstRow    = $baseRow + 1 + $indexInPg;
-
-            // Copiar encabezado del bloque para páginas > 0
-            if ($indexInPg === 0 && $page > 0) {
-                $copyRow($sheet, $headerRow, $hdrRow, $colsRange);
-            }
-            // Copiar formato de la primera fila de datos
-            $copyRow($sheet, $firstData, $dstRow, $colsRange);
-
-            // Escribir
-            $sheet->setCellValue($colNo   . $dstRow, $indexInPg + 1);
-            $sheet->setCellValue($colPto  . $dstRow, (string)($rec->punto_medicion ?? ''));
-            $sheet->setCellValue($colMax  . $dstRow, $max === null ? '' : $max);
-            $sheet->setCellValue($colMin  . $dstRow, $min === null ? '' : $min);
-            $sheet->setCellValue($colProm . $dstRow, $prm === null ? '' : round($prm, 2));
-            // $colNRR eliminado – no hay columna NRR
-            $sheet->setCellValue($colNRE  . $dstRow, $nre === null ? '' : round($nre, 2));
-            $sheet->setCellValue($colLim  . $dstRow, round($lim, 0));
-            $sheet->setCellValue($colobs  . $dstRow, (string)($rec->observaciones ?? ''));
+            $sheet->setCellValue('A' . $dstRow, $indexInPg + 1);
+            $sheet->setCellValue('B' . $dstRow, (string) ($rec->localizacion_nombre ?? ''));
+            $sheet->setCellValue('C' . $dstRow, (string) ($rec->punto_medicion ?? ''));
+            $sheet->setCellValue('D' . $dstRow, (string) ($rec->puesto_nombre ?? ''));
+            $sheet->setCellValue('E' . $dstRow, $max === null ? '' : $max);
+            $sheet->setCellValue('F' . $dstRow, $min === null ? '' : $min);
+            $sheet->setCellValue('G' . $dstRow, $prm === null ? '' : round($prm, 2));
+            $sheet->setCellValue('H' . $dstRow, $nre === null ? '' : round($nre, 2));
+            $sheet->setCellValue('I' . $dstRow, $lim === null ? '' : $lim);
+            $sheet->setCellValue('J' . $dstRow, (string) ($rec->observaciones ?? ''));
 
             $i++;
         }
     }
 
-    // Descargar como XLSX (stream)
     while (ob_get_level()) { ob_end_clean(); }
     $filename = "reporte_ruido_departamentos_{$year}.xlsx";
 
@@ -1961,5 +2032,5 @@ public function prefill(Request $request)
         'lux_rows' => $luxRows,
     ]);
 }
-
 }
+
