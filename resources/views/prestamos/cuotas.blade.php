@@ -40,25 +40,47 @@
   </div>
 @endif
 
-            <form action="{{ route('cuotas') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
-        <div class="relative w-full">
-            <input
-                type="text"
-                name="search"
-                value="{{ request('search') }}"
-                placeholder="Buscar..."
-                oninput="this.form.submit()" {{-- aquí está la magia --}}
-                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
-                </svg>
+<form action="{{ route('prestamos.ajustes.import') }}" method="post" enctype="multipart/form-data" class="space-y-3">
+  @csrf
+  <input type="file" name="archivo" accept=".xlsx,.xls" required class="block">
+  <button class="px-4 py-2 bg-blue-600 text-white rounded">Importar ajustes</button>
+</form>
+
+    <div class="bg-white p-4 rounded-lg shadow-sm border">
+        <form action="{{ Request::url() }}" method="GET" class="flex items-center gap-2">
+            <div class="relative flex-1">
+                <input
+                    type="text"
+                    name="search"
+                    value="{{ request('search') }}"
+                    placeholder="Buscar por nombre, código, ID préstamo o número de cuota..."
+                    class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
+                    </svg>
+                </div>
             </div>
-        </div>
-    </form>
+            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 text-sm font-medium">
+                Buscar
+            </button>
+            @if(request('search'))
+                <a href="{{ Request::url() }}" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 focus:ring-2 focus:ring-gray-400 text-sm font-medium">
+                    Limpiar
+                </a>
+            @endif
+        </form>
+        
+        @if(request('search'))
+            <div class="mt-2 text-sm text-blue-600">
+                <svg class="inline w-4 h-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+                </svg>
+                Buscando: "{{ request('search') }}" - {{ $cuotas->total() }} resultado(s) encontrado(s)
+            </div>
+        @endif
+    </div>
     <div class="mt-3">
         <a href="{{ route('cuotas.rango') }}" class="inline-flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

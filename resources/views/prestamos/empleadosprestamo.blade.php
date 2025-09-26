@@ -29,25 +29,30 @@
     <br>
 
     <div class="flex items-center justify-between w-full gap-3">
+        <!-- Campo de búsqueda mejorado con búsqueda en backend -->
         <form action="{{ route('empleadosprestamo') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
-        <div class="relative w-full">
-            <input
-                type="text"
-                name="search"
-                value="{{ request('search') }}"
-                placeholder="Buscar..."
-                oninput="this.form.submit()" {{-- aquí está la magia --}}
-                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
-                </svg>
+            <div class="relative w-full">
+                <input
+                    type="text"
+                    name="search"
+                    value="{{ request('search') }}"
+                    placeholder="Buscar empleado, código o número de préstamo..."
+                    class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
+                    </svg>
+                </div>
+                <button type="submit" class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                    <svg class="w-4 h-4 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                </button>
             </div>
-        </div>
-    </form>
+        </form>
 
     <a
     href="{{ route('empleadosprestamo.export', ['search' => request('search')]) }}"
@@ -56,7 +61,28 @@
     >
     Descargar Excel
     </a>
+    @if(request('search'))
+        <a href="{{ route('empleadosprestamo') }}" 
+           class="ml-2 inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            Limpiar búsqueda
+        </a>
+    @endif
     </div>
+
+    @if(request('search'))
+        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="flex items-center">
+                <svg class="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="text-blue-700">Mostrando resultados para: <strong>"{{ request('search') }}"</strong></span>
+                <span class="text-blue-600 ml-2">({{ $empleadosprestamo->total() }} encontrados)</span>
+            </div>
+        </div>
+    @endif
 
     <div class="relative overflow-x-auto shadow-md sm:rounded-lg" style="margin-top: 20px;">
         <table class="w-full text-sm text-left rtl:text-right text-gray-500">
@@ -169,12 +195,23 @@
                     <td class="px-6 py-4">
                     <button
                         type="button"
-                        class="btn-detalle inline-flex items-center px-3 py-1.5 rounded-lg text-white"
+                        class="btn-detalle inline-flex items-center px-3 py-1.5 rounded-lg text-white mb-2"
                         style="background:#00B0F0;"
                         data-url="{{ route('prestamos.detalle', $empleadosprestamos->id_prestamo) }}"
                     >
                         Ver detalles
                     </button>
+                    <br>
+                    <a
+                        href="{{ route('prestamos.detalle.amortizacion', $empleadosprestamos->id_prestamo) }}"
+                        class="inline-flex items-center px-3 py-1.5 rounded-lg text-white text-center"
+                        style="background:#28a745; text-decoration: none;"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
+                        </svg>
+                        Tabla Amortización
+                    </a>
                     </td>
                 </tr>
             @endforeach

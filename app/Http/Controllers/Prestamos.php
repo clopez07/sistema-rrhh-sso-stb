@@ -38,6 +38,7 @@ public function empleadosprestamo(Request $request)
         })
         ->select(
             'p.id_prestamo',
+            'emp.id_empleado',
             'emp.codigo_empleado',
             'emp.nombre_completo',
             'p.num_prestamo',
@@ -416,7 +417,7 @@ public function empleadosprestamo(Request $request)
                     $inicio = Carbon::parse($fechaInicioInput)->startOfDay();
                     $fin = Carbon::parse($fechaFinInput)->endOfDay();
                 } catch (\Throwable $th) {
-                    $errorMensaje = 'Formato de fecha no válido.';
+                    $errorMensaje = 'Formato de fecha no vï¿½lido.';
                 }
 
                 if (!$errorMensaje && $inicio->gt($fin)) {

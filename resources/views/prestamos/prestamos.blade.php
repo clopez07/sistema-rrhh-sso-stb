@@ -60,15 +60,13 @@
                 Agregar
             </button>
             <a href="/prestamos/renuncia" type="button"
-                class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-transparent border border-gray-900 rounded-s-lg hover:bg-gray-900 focus:z-10 focus:ring-2 focus:ring-gray-500 focus:bg-gray-900">
+                class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-900 bg-transparent border border-gray-900 rounded-e-lg hover:bg-gray-900 focus:z-10 focus:ring-2 focus:ring-gray-500 focus:bg-gray-900">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-door-open" viewBox="0 0 16 16">
                   <path d="M8.5 10c-.276 0-.5-.448-.5-1s.224-1 .5-1 .5.448.5 1-.224 1-.5 1"/>
                   <path d="M10.828.122A.5.5 0 0 1 11 .5V1h.5A1.5 1.5 0 0 1 13 2.5V15h1.5a.5.5 0 0 1 0 1h-13a.5.5 0 0 1 0-1H3V1.5a.5.5 0 0 1 .43-.495l7-1a.5.5 0 0 1 .398.117M11.5 2H11v13h1V2.5a.5.5 0 0 0-.5-.5M4 1.934V15h6V1.077z"/>
                 </svg>
                 Realizar Ajuste por renuncia
-              </a>
-
-<!-- MODAL: Nuevo Préstamo (mismos campos; estilos del modal que enviaste) -->
+            </a><!-- MODAL: Nuevo Préstamo (mismos campos; estilos del modal que enviaste) -->
 <div id="create-modal" tabindex="-1" aria-hidden="true"
      class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50
             justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
@@ -232,9 +230,9 @@
                     focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5"/>
     </div>
 
-    <!-- Porcentaje interés -->
+    <!-- Porcentaje interés mensual -->
     <div class="col-span-1">
-      <label class="block mb-2 text-sm font-medium text-gray-900">Porcentaje Interés</label>
+      <label class="block mb-2 text-sm font-medium text-gray-900">Porcentaje Interés Mensual</label>
       <div class="relative">
       <input type="number" step="0.01" name="porcentaje_interes"
                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg
@@ -243,13 +241,13 @@
       </div>
     </div>
 
-        <!-- Total de intereses -->
+    {{-- <!-- Total de intereses -->
     <div class="col-span-1">
       <label class="block mb-2 text-sm font-medium text-gray-900">Total de intereses</label>
       <input type="number" step="0.01" name="total_intereses"
              class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg
                     focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5"/>
-    </div>
+    </div> --}}
 
         <!-- Cuota mensual -->
     <div class="col-span-1">
@@ -542,6 +540,16 @@
             data-modal-toggle="modal-nuevo-prestamo">
       Cancelar
     </button>
+    <button type="button"
+            id="btn-visualizar-amortizacion"
+            onclick="mostrarVistaAmortizacion()"
+            class="text-white inline-flex items-center bg-green-600 hover:bg-green-700 focus:ring-4
+                   focus:outline-none focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5">
+      <svg class="w-4 h-4 me-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
+      </svg>
+      Visualizar Amortización
+    </button>
     <button type="submit"
             class="text-white inline-flex items-center bg-blue-700 hover:bg-blue-800 focus:ring-4
                    focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5">
@@ -642,6 +650,107 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+    </div>
+  </div>
+</div>
+
+<!-- Modal para Visualizar Amortización -->
+<div id="modal-visualizar-amortizacion" tabindex="-1" aria-hidden="true"
+     class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50
+            justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full bg-black bg-opacity-50">
+  <div class="relative p-6 w-full max-w-5xl max-h-full">
+    <div class="relative bg-white rounded-xl shadow-xl">
+      <!-- Header Minimalista -->
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <h3 class="text-2xl font-light text-gray-800">Tabla de Amortización</h3>
+        <button type="button"
+                onclick="cerrarModalAmortizacion()"
+                class="text-gray-400 hover:text-gray-600 transition-colors duration-200">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6">
+        <!-- Información Principal - Diseño minimalista -->
+        <div class="mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <!-- Empleado -->
+            <div class="text-center">
+              <div class="text-sm text-gray-500 uppercase tracking-wider mb-1">Empleado</div>
+              <div id="preview-empleado-nombre" class="text-lg font-medium text-gray-900"></div>
+            </div>
+            <!-- Monto -->
+            <div class="text-center">
+              <div class="text-sm text-gray-500 uppercase tracking-wider mb-1">Monto</div>
+              <div id="preview-monto" class="text-2xl font-light text-gray-900"></div>
+            </div>
+            <!-- Tasa -->
+            <div class="text-center">
+              <div class="text-sm text-gray-500 uppercase tracking-wider mb-1">Tasa Mensual</div>
+              <div id="preview-tasa" class="text-2xl font-light text-blue-600"></div>
+            </div>
+          </div>
+          
+          <!-- Info secundaria -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm">
+            <div>
+              <span class="text-gray-500">Fecha:</span>
+              <span id="preview-fecha" class="ml-1 font-medium"></span>
+            </div>
+            <div>
+              <span class="text-gray-500">Plazo:</span>
+              <span id="preview-plazo-m" class="ml-1 font-medium"></span> meses
+            </div>
+            <div>
+              <span class="text-gray-500">% Total:</span>
+              <span id="preview-interes-total" class="ml-1 font-medium"></span>%
+            </div>
+            <div>
+              <span class="text-gray-500">% Mensual:</span>
+              <span id="preview-interes-mensual" class="ml-1 font-medium"></span>%
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla Minimalista -->
+        <div class="overflow-hidden rounded-lg border border-gray-200">
+          <table class="w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No.</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Capital</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Interés</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cuota</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-amortizacion-preview" class="bg-white divide-y divide-gray-200">
+              <!-- Contenido generado dinámicamente -->
+            </tbody>
+            <tfoot class="bg-gray-50">
+              <tr class="font-medium">
+                <td class="px-4 py-3 text-sm text-gray-900">TOTAL</td>
+                <td class="px-4 py-3 text-sm text-right text-gray-900" id="total-capital"></td>
+                <td class="px-4 py-3 text-sm text-right text-gray-900" id="total-interes"></td>
+                <td class="px-4 py-3 text-sm text-right text-gray-900" id="total-cuota"></td>
+                <td class="px-4 py-3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Botón cerrar -->
+        <div class="mt-6 flex justify-end">
+          <button type="button"
+                  onclick="cerrarModalAmortizacion()"
+                  class="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200">
+            Cerrar
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -805,25 +914,50 @@ document.addEventListener('DOMContentLoaded', function () {
    </div>
 
             <form action="{{ route('infoprestamo') }}" method="GET" class="relative w-full max-w-sm bg-white flex items-center">
-        <div class="relative w-full">
-            <input
-                type="text"
-                name="search"
-                value="{{ request('search') }}"
-                placeholder="Buscar..."
-                oninput="this.form.submit()" {{-- aquí está la magia --}}
-                class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
-                </svg>
+                <div class="relative w-full">
+                    <input
+                        type="text"
+                        name="search"
+                        value="{{ request('search') }}"
+                        placeholder="Buscar empleado, código o planilla..."
+                        class="pl-10 pr-10 py-2 w-full border border-gray-300 rounded-l-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" stroke-width="2"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" />
+                        </svg>
+                    </div>
+                    <button type="submit" class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <svg class="w-4 h-4 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+            @if(request('search'))
+                <a href="{{ route('infoprestamo') }}" 
+                   class="ml-2 inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    Limpiar
+                </a>
+            @endif
             </div>
-        </div>
-    </form>
-    </div>
+
+            @if(request('search'))
+                <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="text-blue-700">Mostrando resultados para: <strong>"{{ request('search') }}"</strong></span>
+                        <span class="text-blue-600 ml-2">({{ $prestamo->total() }} encontrados)</span>
+                    </div>
+                </div>
+            @endif
 
     <div class="relative overflow-x-auto shadow-md sm:rounded-lg" style="margin-top: 20px;">
         <table class="w-full text-sm text-left rtl:text-right text-gray-500">
@@ -923,7 +1057,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     </td>
                     <td>
                         <!-- Botón Eliminar -->
-<button type="button" class="btn btn-danger" onclick="mostrarModalEliminar({{ $prestamos->id_prestamo }})">
+<button type="button" class="btn btn-danger" onclick="mostrarModalEliminar(<?php echo $prestamos->id_prestamo; ?>)">
   Eliminar Préstamo
 </button>
 
@@ -1103,4 +1237,132 @@ function confirmarEliminarPrestamo() {
         </table>
         {{ $prestamo->links() }}
     </div>
+
+<script>
+// Funcionalidad para visualizar amortización
+function mostrarVistaAmortizacion() {
+    // Obtener datos del formulario
+    const empleadoSelect = document.getElementById('id_empleado');
+    const monto = parseFloat(document.querySelector('input[name="monto_prestado"]').value);
+    const tasa = parseFloat(document.querySelector('input[name="porcentaje_interes"]').value);
+    const plazo = parseFloat(document.querySelector('input[name="plazo_prestamo"]').value);
+    const fechaInicio = document.querySelector('input[name="fecha_primera_cuota"]').value;
+    
+    // Validar campos requeridos
+    if (!empleadoSelect.value || !monto || !tasa || !plazo || !fechaInicio) {
+        alert('Por favor complete los campos: Empleado, Monto, Tasa de Interés, Plazo del Préstamo y Fecha Primera Cuota');
+        return;
+    }
+    
+    // Preparar datos para envío
+    const formData = new FormData();
+    formData.append('id_empleado', empleadoSelect.value);
+    formData.append('monto', monto);
+    formData.append('tasa_interes', tasa);
+    formData.append('plazo_meses', plazo);
+    formData.append('fecha_primer_pago', fechaInicio);
+    
+    // Obtener token CSRF
+    const csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfToken) {
+        alert('Error: Token CSRF no encontrado. Recargue la página.');
+        return;
+    }
+    
+    // Realizar llamada a la API
+    fetch('{{ route("prestamos.vista-previa") }}', {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': csrfToken.getAttribute('content'),
+            'Accept': 'application/json',
+        },
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(text => {
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            // Actualizar información en el modal (solo los elementos que existen)
+            document.getElementById('preview-empleado-nombre').textContent = data.resumen.empleado;
+            document.getElementById('preview-fecha').textContent = new Date().toLocaleDateString('es-ES');
+            document.getElementById('preview-plazo-m').textContent = data.resumen.plazo_meses;
+            document.getElementById('preview-monto').textContent = data.resumen.monto_prestado.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('preview-tasa').textContent = data.resumen.tasa_mensual_ingresada + '%';
+            
+            // Actualizar porcentajes de interés (usando las fórmulas correctas)
+            document.getElementById('preview-interes-total').textContent = data.resumen.porcentaje_interes_total.toFixed(2);
+            document.getElementById('preview-interes-mensual').textContent = data.resumen.porcentaje_interes_mensual.toFixed(2);
+            
+            // Generar tabla de amortización
+            let tablaHTML = '';
+            let totalCapital = 0;
+            let totalInteres = 0;
+            let totalCuota = 0;
+            
+            data.cuotas.forEach((cuota, index) => {
+                totalCapital += cuota.capital;
+                totalInteres += cuota.interes;
+                totalCuota += cuota.cuota;
+                
+                tablaHTML += `
+                    <tr class="${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors duration-150">
+                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${cuota.numero}</td>
+                        <td class="px-4 py-3 text-sm text-right text-gray-900">${cuota.capital.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td class="px-4 py-3 text-sm text-right text-gray-900">${cuota.interes.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td class="px-4 py-3 text-sm text-right font-medium text-gray-900">${cuota.cuota.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td class="px-4 py-3 text-sm text-right text-gray-500">${cuota.saldo.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    </tr>
+                `;
+            });
+            
+            // Actualizar totales con formato exacto de 2 decimales
+            document.getElementById('total-capital').textContent = totalCapital.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('total-interes').textContent = totalInteres.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('total-cuota').textContent = totalCuota.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            
+            document.getElementById('tabla-amortizacion-preview').innerHTML = tablaHTML;
+            
+            // Mostrar el modal
+            const modal = document.getElementById('modal-visualizar-amortizacion');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            // Agregar event listener para cerrar con escape
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    cerrarModalAmortizacion();
+                }
+            });
+        } else {
+            alert('Error al generar la vista previa: ' + (data.message || 'Error desconocido'));
+            console.error('Error data:', data);
+        }
+    })
+    .catch(error => {
+        console.error('Error completo:', error);
+        alert('Error al generar la vista previa: ' + error.message);
+    });
+}
+
+// Funcionalidad para cerrar el modal de amortización
+function cerrarModalAmortizacion() {
+    const modal = document.getElementById('modal-visualizar-amortizacion');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// Cerrar modal haciendo clic fuera de él
+document.getElementById('modal-visualizar-amortizacion').addEventListener('click', function(e) {
+    if (e.target === this) {
+        cerrarModalAmortizacion();
+    }
+});
+</script>
+
 @endsection

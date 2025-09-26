@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\Capacitaciones;
 use App\Http\Controllers\EPP;
 use App\Http\Controllers\Generales;
@@ -43,6 +44,9 @@ use App\Http\Controllers\MedicionesController;
 use App\Http\Controllers\EppRequeridosController;
 use App\Http\Controllers\PrestamoRenunciaController;
 use App\Http\Controllers\PrestamosResumenController;
+use App\Http\Controllers\PrestamosSimuladorController;
+use App\Http\Controllers\PrestamosNuevo;
+use App\Http\Controllers\MedidasRiesgoPuestoController;
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/evaluacion-riesgos/puestos', [EvaluacionRiesgosExportController::class, 'puestos'])->name('evaluacion.riesgos.puestos');
@@ -136,6 +140,14 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/cuotas/{id}', [Prestamos::class, 'updateCuota'])->name('cuotas.update');
     Route::get('/cuotas-especiales', [Prestamos::class, 'cuotasEspeciales'])->name('cuotas.especiales');
     Route::delete('/cuotas/{id}', [Prestamos::class, 'destroyCuota'])->name('cuotas.destroy');
+
+    // RUTAS PARA TABLA DE AMORTIZACIÓN
+    Route::post('/prestamos/simular', [PrestamosSimuladorController::class, 'calcularSimulacion'])->name('prestamos.simular');
+    Route::post('/prestamos/vista-previa', [PrestamosSimuladorController::class, 'vistaPrevia'])->name('prestamos.vista-previa');
+    Route::post('/prestamos/registrar', [PrestamosSimuladorController::class, 'registrarPrestamo'])->name('prestamos.registrar');
+    Route::get('/prestamos/amortizacion', [PrestamosSimuladorController::class, 'tablaAmortizacion'])->name('prestamos.amortizacion');
+    Route::get('/prestamos/{id}/detalle-amortizacion', [PrestamosSimuladorController::class, 'verAmortizacion'])->name('prestamos.detalle.amortizacion');
+    Route::get('/prestamos/{id}/exportar-amortizacion', [PrestamosSimuladorController::class, 'exportarAmortizacion'])->name('prestamos.exportar.amortizacion');
 
  // RUTAS PARA ACCEDER A LOS DATOS DE LOS EMPLEADOS
     // Route::post('/empleado', [EmpleadoController::class, 'store'])->name('empleados.store');
@@ -233,7 +245,6 @@ Route::middleware(['auth'])->group(function () {
         ->name('reportes.prestamos.julio.descargar');
 
     Route::get('/epp/export', [EPP::class, 'exportFormatoEpp'])->name('epp.export');
-    Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 
     // RUTAS PARA RIESGOS
     // Tipo de exposici�n
